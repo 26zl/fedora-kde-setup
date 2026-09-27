@@ -1,9 +1,9 @@
 # Fedora 44 KDE — Full Setup Guide
 
-[![ShellCheck](https://github.com/26zl/fedora-44-kde-setup/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/26zl/fedora-44-kde-setup/actions/workflows/shellcheck.yml)
-[![Secret Scan](https://github.com/26zl/fedora-44-kde-setup/actions/workflows/secret-scan.yml/badge.svg)](https://github.com/26zl/fedora-44-kde-setup/actions/workflows/secret-scan.yml)
-[![Trivy](https://github.com/26zl/fedora-44-kde-setup/actions/workflows/trivy.yml/badge.svg)](https://github.com/26zl/fedora-44-kde-setup/actions/workflows/trivy.yml)
-[![Validate](https://github.com/26zl/fedora-44-kde-setup/actions/workflows/validate.yml/badge.svg)](https://github.com/26zl/fedora-44-kde-setup/actions/workflows/validate.yml)
+[![ShellCheck](https://github.com/26zl/fedora-kde-setup/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/26zl/fedora-kde-setup/actions/workflows/shellcheck.yml)
+[![Secret Scan](https://github.com/26zl/fedora-kde-setup/actions/workflows/secret-scan.yml/badge.svg)](https://github.com/26zl/fedora-kde-setup/actions/workflows/secret-scan.yml)
+[![Trivy](https://github.com/26zl/fedora-kde-setup/actions/workflows/trivy.yml/badge.svg)](https://github.com/26zl/fedora-kde-setup/actions/workflows/trivy.yml)
+[![Validate](https://github.com/26zl/fedora-kde-setup/actions/workflows/validate.yml/badge.svg)](https://github.com/26zl/fedora-kde-setup/actions/workflows/validate.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-teal.svg)](LICENSE)
 [![Fedora](https://img.shields.io/badge/Fedora-44-blue?logo=fedora&logoColor=white)](https://fedoraproject.org/)
 [![KDE Plasma](https://img.shields.io/badge/KDE-Plasma%206-1d99f3?logo=kde&logoColor=white)](https://kde.org/)
@@ -17,7 +17,7 @@ The scripts detect the hardware and adapt to it, so the same repo sets up a gami
 
 | Detected | What the setup does |
 | --- | --- |
-| NVIDIA GPU, Turing (RTX 20 / GTX 16) or newer | `akmod-nvidia` from RPM Fusion, NVIDIA Wayland and suspend configs, MOK enrollment under Secure Boot |
+| NVIDIA GPU, Turing (RTX 20 / GTX 16) or newer | `akmod-nvidia` from RPM Fusion, NVIDIA Wayland and suspend configs; under Secure Boot it prints the MOK enrollment steps |
 | NVIDIA GPU, Maxwell, Pascal or Volta (GTX 900 / 10) | The `580xx` driver branch, the last one that supports them. Older cards stay on nouveau |
 | AMD GPU | `mesa-va-drivers-freeworld` for H.264/H.265 hardware video |
 | Intel GPU | `intel-media-driver` for H.264/H.265 hardware video |
@@ -27,7 +27,7 @@ The scripts detect the hardware and adapt to it, so the same repo sets up a gami
 | btrfs root | Snapper snapshots |
 | AMD or Intel CPU | CPU temperature from `k10temp` or `coretemp` in Conky and `sysinfo` |
 
-Detection lives in `scripts/lib/hw.sh`, and `fedora-setup.sh` prints what it found before it changes anything. To override it, copy `setup.conf.example` to `setup.conf` (git-ignored) and set `FORM_FACTOR`, `NVIDIA_DRIVER` or `AUDIO_TRIM`. Peripheral quirks (LAMZU mice, DualSense controllers, a few USB receivers) match on USB IDs and do nothing unless the device is plugged in.
+Detection lives in `scripts/lib/hw.sh`, and `fedora-setup.sh` prints what it found before it changes anything. To override it, copy `setup.conf.example` to `setup.conf` (git-ignored) and set `FORM_FACTOR`, `NVIDIA_DRIVER` or `AUDIO_TRIM`; a value outside the documented set stops the scripts before they change anything. Everything targets x86_64. Peripheral quirks (LAMZU mice, DualSense controllers, a few USB receivers) match on USB IDs and do nothing unless the device is plugged in.
 
 Developed and verified on an AMD desktop with a discrete NVIDIA card next to the CPU's integrated GPU, dual-booting Windows. The other hardware paths are covered by `tests/hw-detect.sh` and the CI package check.
 
@@ -108,7 +108,7 @@ sudo dnf upgrade --refresh -y
 sudo reboot
 
 # 2. After the reboot, clone and run the setup
-git clone https://github.com/26zl/fedora-44-kde-setup.git ~/fedora-setup
+git clone https://github.com/26zl/fedora-kde-setup.git ~/fedora-setup
 cd ~/fedora-setup
 cp setup.conf.example setup.conf   # optional: only to override the detection
 bash scripts/fedora-setup.sh
@@ -214,7 +214,7 @@ sudo cp system/tuned-ppd.conf /etc/tuned/ppd.conf
 sudo tuned-adm profile latency-performance   # desktops only
 ```
 
-The `tuned-ppd.conf` maps KDE's "Performance" power mode to `latency-performance` instead of the default `throughput-performance`, so the profile persists correctly at boot. Laptops skip the `tuned-adm` line and keep tuned-ppd's `balanced` default, which switches to `balanced-battery` when unplugged. Performance is still one click away in the battery applet.
+The `tuned-ppd.conf` maps KDE's "Performance" power mode to `latency-performance` instead of the default `throughput-performance`, so the profile persists correctly at boot. Laptops get `balanced` instead (`apply-system.sh` sets it, which also undoes `latency-performance` left by an earlier desktop run), and tuned-ppd switches that to `balanced-battery` when unplugged. Performance is still one click away in the battery applet. This relies on `tuned-ppd`, which the KDE spin ships and `fedora-setup.sh` installs; without it tuned keeps whatever profile was last set.
 
 > **Note:** Recent AMD CPUs run `amd-pstate-epp` and Intel CPUs `intel_pstate`, both in active mode by default. In that mode only the `performance` and `powersave` governors exist, not `schedutil` or others.
 
@@ -423,7 +423,7 @@ sudo mkdir -p /etc/libinput
 sudo cp system/libinput-overrides.quirks /etc/libinput/local-overrides.quirks
 ```
 
-### Audio Trim (optional)
+### 16. Audio Trim (optional)
 
 `configs/wireplumber/wireplumber.conf.d/50-audio.conf` hides the onboard AMD audio controller, AMD iGPU HDMI audio and every webcam microphone from PipeWire. That is right when all sound goes through another device, such as a USB headset or the GPU's HDMI/DP output, and wrong otherwise — on many laptops the same AMD controller drives the speakers. It is therefore opt-in: set `AUDIO_TRIM=yes` in `setup.conf`, or copy it by hand:
 
@@ -435,7 +435,7 @@ systemctl --user restart wireplumber
 
 ---
 
-### 16. tmpfs Quota Fix (/tmp + /dev/shm)
+### 17. tmpfs Quota Fix (/tmp + /dev/shm)
 
 systemd 256+ mounts `/tmp` and `/dev/shm` with an automatic per-user quota (~12 GB on 30 GB RAM). Heavy temp use (Chrome, large extractions) hits it and fails with **"Disk quota exceeded"** long before the tmpfs is full. Pointless on a single-user box.
 

@@ -66,6 +66,20 @@ hw_is_laptop() {
     return 1
 }
 
+# Refuse a setup.conf value outside the documented set instead of quietly
+# falling back to detection, which would hide a typo until the wrong files land.
+hw_check_conf() {
+    case "${FORM_FACTOR:-auto}" in auto|desktop|laptop) ;;
+        *) echo "setup.conf: FORM_FACTOR must be auto, desktop or laptop (got '$FORM_FACTOR')" >&2; return 1 ;;
+    esac
+    case "${NVIDIA_DRIVER:-auto}" in auto|current|580xx|none) ;;
+        *) echo "setup.conf: NVIDIA_DRIVER must be auto, current, 580xx or none (got '$NVIDIA_DRIVER')" >&2; return 1 ;;
+    esac
+    case "${AUDIO_TRIM:-no}" in yes|no) ;;
+        *) echo "setup.conf: AUDIO_TRIM must be yes or no (got '$AUDIO_TRIM')" >&2; return 1 ;;
+    esac
+}
+
 # desktop or laptop; FORM_FACTOR in setup.conf overrides the detection.
 hw_form_factor() {
     case "${FORM_FACTOR:-auto}" in
@@ -94,9 +108,12 @@ hw_is_hybrid_laptop() {
 }
 
 # Windows shares this machine: its boot manager is in the UEFI boot list, or on
-# the ESP Fedora mounts at /boot/efi (a second disk's ESP is not seen).
+# the ESP Fedora mounts at /boot/efi (a second disk's ESP is not seen). Under a
+# fixture root the firmware is not consulted, only the tree.
 hw_has_windows() {
-    efibootmgr 2>/dev/null | grep -q 'Windows Boot Manager' && return 0
+    if [ -z "$HW_ROOT" ]; then
+        efibootmgr 2>/dev/null | grep -q 'Windows Boot Manager' && return 0
+    fi
     find "$HW_ROOT/boot/efi/EFI" -maxdepth 3 -iname bootmgfw.efi 2>/dev/null | grep -q .
 }
 
