@@ -87,23 +87,23 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Add the repos the scripts add
-        run: |
-          dnf -y -q install dnf5-plugins
-          dnf -y -q install \
-            "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm" \
-            "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm"
-          for c in $(grep -hoP 'copr enable -y \K\S+' scripts/*.sh); do dnf -y -q copr enable "$c"; done
-          dnf -y -q install --repofrompath "terra,https://repos.fyralabs.com/terra$(rpm -E %fedora)" \
-            --setopt="terra.gpgkey=https://repos.fyralabs.com/terra$(rpm -E %fedora)/key.asc" terra-release
-          # imports the repo signing keys once; repoquery would otherwise stop at the prompt
-          dnf -y -q makecache
+      - name: Add the repos and resolve every package
+        run: bash tests/check-packages.sh
 
-      - name: Resolve every package
-        run: |
-          missing=0
-          for p in $(sed ':a;/\\$/{N;s/\\\n//;ba}' scripts/*.sh | grep -oP 'dnf install -y \K.*' |
-                     tr ' ' '\n' | grep -E '^[a-z0-9][a-z0-9._+-]*$' | sort -u); do
-            dnf -q repoquery --available "$p" | grep -q . || { echo "not available: $p"; missing=1; }
-          done
-          exit $missing
+  # Same check against the upcoming release. Allowed to fail: it exists to show which
+  # third-party repos still lag before the upgrade, not to block merges.
+  packages-next:
+    name: Check every package on the next Fedora release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    container: registry.fedoraproject.org/fedora:45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Add the repos and resolve every package
+        run: bash tests/check-packages.sh
