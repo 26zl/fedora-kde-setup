@@ -167,6 +167,11 @@ rm -rf "$dl"
 
 section "Flatpak (gaming)"
 flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+# the spin ships Fedora's own OCI remote too; everything here comes from Flathub, and the
+# extra remote only slows every Discover refresh
+if flatpak remotes --columns=name | grep -qx fedora && ! flatpak list --columns=origin | grep -qx fedora; then
+    sudo flatpak remote-delete --system fedora
+fi
 flatpak install -y flathub \
     net.davidotek.pupgui2 \
     com.heroicgameslauncher.hgl \
