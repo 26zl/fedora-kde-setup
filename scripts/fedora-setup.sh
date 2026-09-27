@@ -11,6 +11,7 @@ cd "$(dirname "$0")/.."
 source scripts/lib/hw.sh
 # shellcheck disable=SC1091
 [ -f setup.conf ] && source ./setup.conf
+hw_check_conf
 
 TEAL='\033[38;2;0;200;168m'
 RED='\033[38;2;170;28;28m'
@@ -102,6 +103,7 @@ sudo dnf install -y \
     pciutils \
     libva-utils \
     tuned \
+    tuned-ppd \
     scx-scheds \
     zram-generator \
     lm_sensors
@@ -177,7 +179,9 @@ ok "ProtonUp-Qt, Heroic, Lutris, Bottles, Prism, GOverlay, EasyEffects installed
 
 section "tuned"
 sudo systemctl enable --now tuned
-ok "tuned enabled (profile is set by apply-system.sh)"
+# tuned-ppd applies system/tuned-ppd.conf: balanced by default, latency-performance behind the Performance mode
+sudo systemctl enable --now tuned-ppd
+ok "tuned + tuned-ppd enabled (profile is set by apply-system.sh)"
 
 section "System configs (scripts/apply-system.sh)"
 bash scripts/apply-system.sh

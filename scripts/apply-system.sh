@@ -9,6 +9,7 @@ cd "$(dirname "$0")/.."
 source scripts/lib/hw.sh
 # shellcheck disable=SC1091
 [ -f setup.conf ] && source ./setup.conf
+hw_check_conf
 
 TEAL='\033[38;2;0;200;168m'
 RED='\033[38;2;170;28;28m'
@@ -84,9 +85,10 @@ fi
 section "tuned"
 sudo cp system/tuned-ppd.conf /etc/tuned/ppd.conf
 if [ "$FORM_FACTOR" = laptop ]; then
-    # keep tuned-ppd's battery-aware balanced default; Performance in the battery
-    # applet still maps to latency-performance
-    ok "tuned: balanced by default, PPD performance mapped to latency-performance"
+    # tuned-ppd's battery-aware default; also undoes latency-performance left by an
+    # earlier desktop run. Performance in the battery applet still maps to latency-performance
+    sudo tuned-adm profile balanced
+    ok "tuned: balanced; PPD performance mapped to latency-performance"
 else
     sudo tuned-adm profile latency-performance
     ok "tuned: latency-performance; PPD performance mapped to latency-performance"

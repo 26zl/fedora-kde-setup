@@ -73,14 +73,16 @@ check "desktop: has Intel GPU" no "$(yes_no hw_has_gpu 8086)"
 check "desktop: hybrid laptop" no "$(yes_no hw_is_hybrid_laptop)"
 check "desktop: CPU vendor" amd "$(hw_cpu_vendor)"
 check "desktop: no Windows" no "$(yes_no hw_has_windows)"
+# the firmware boot list is only read on a real system (empty HW_ROOT)
 stub efibootmgr "echo 'Boot0000* Windows Boot Manager	HD(1,GPT,...)'"
-check "desktop: Windows in the boot list" yes "$(yes_no hw_has_windows)"
-check "desktop: summary" \
-    "desktop, amd CPU, GPU: NVIDIA AMD (NVIDIA driver: current), Windows dual-boot" "$(hw_summary)"
+check "desktop: boot list ignored under a fixture root" no "$(yes_no hw_has_windows)"
+check "desktop: Windows in the boot list" yes "$(HW_ROOT="" yes_no hw_has_windows)"
 stub efibootmgr 'exit 0'
 mkdir -p "$desk/boot/efi/EFI/Microsoft/Boot"
 touch "$desk/boot/efi/EFI/Microsoft/Boot/bootmgfw.efi"
 check "desktop: Windows on the ESP only" yes "$(yes_no hw_has_windows)"
+check "desktop: summary" \
+    "desktop, amd CPU, GPU: NVIDIA AMD (NVIDIA driver: current), Windows dual-boot" "$(hw_summary)"
 
 FORM_FACTOR=laptop
 check "override: FORM_FACTOR" laptop "$(hw_form_factor)"
@@ -91,6 +93,13 @@ check "override: NVIDIA_DRIVER=none" "" "$(hw_nvidia_driver)"
 NVIDIA_DRIVER=580xx
 check "override: NVIDIA_DRIVER=580xx" 580xx "$(hw_nvidia_driver)"
 unset NVIDIA_DRIVER FORM_FACTOR
+
+# setup.conf validation: a typo must fail, not fall back to detection
+check "conf: defaults valid" yes "$(yes_no hw_check_conf)"
+check "conf: FORM_FACTOR=Laptop rejected" no "$(FORM_FACTOR=Laptop yes_no hw_check_conf 2>/dev/null)"
+check "conf: NVIDIA_DRIVER=latest rejected" no "$(NVIDIA_DRIVER=latest yes_no hw_check_conf 2>/dev/null)"
+check "conf: AUDIO_TRIM=true rejected" no "$(AUDIO_TRIM=true yes_no hw_check_conf 2>/dev/null)"
+check "conf: all overrides valid" yes "$(FORM_FACTOR=laptop NVIDIA_DRIVER=none AUDIO_TRIM=yes yes_no hw_check_conf)"
 
 # Driver branch boundaries: Maxwell starts at 0x1340, Turing at 0x1e00.
 for case in 133f:none 1340:580xx 1b80:580xx 1db1:580xx 1e04:current 2204:current; do
