@@ -46,7 +46,7 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   │   ├── DarthVader.colors   # KDE color scheme (teal + red on black)
 │   │   ├── kvantum/
 │   │   │   └── kvantum.kvconfig # Kvantum theme config (LayanDark)
-│   │   └── plasma-theme/       # Custom Plasma desktop theme — deployed to ~/.local/share/plasma/desktoptheme/darth-vader/
+│   │   └── plasma-theme/       # Plasma desktop theme: Breeze with contrast/transparency tweaks (metadata.json + plasmarc)
 │   ├── kitty/kitty.conf        # Terminal config — fish shell, Darth Vader palette
 │   ├── starship/starship.toml  # Shell prompt
 │   ├── wireplumber/
@@ -95,7 +95,7 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   └── hw-detect.sh            # Detection and hwstat tests against fixture sysfs trees
 ├── setup.conf.example          # Per-machine overrides; copy to setup.conf
 └── wallpaper/
-    └── wallpaper.jpg           # Darth Vader — dark, teal glow, red lightsaber
+    └── wallpaper.jpg           # Darth Vader — dark, teal glow, red lightsaber (5120x2880)
 ```
 
 ---
