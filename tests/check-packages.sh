@@ -1,0 +1,27 @@
+#!/bin/bash
+# In a fresh Fedora container: add the repos the setup scripts add, then check that
+# every package named on a "dnf install -y" line resolves. Run by CI for the current
+# release and the next one, so a rename upstream or a repo that lags a release shows
+# up before an install does.
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+rel=$(rpm -E %fedora)
+echo "==> Fedora $rel: adding repos"
+dnf -y -q install dnf5-plugins
+dnf -y -q install \
+    "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$rel.noarch.rpm" \
+    "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$rel.noarch.rpm"
+grep -hoP 'copr enable -y \K\S+' scripts/*.sh | while read -r c; do dnf -y -q copr enable "$c"; done
+dnf -y -q install --repofrompath "terra,https://repos.fyralabs.com/terra$rel" \
+    --setopt="terra.gpgkey=https://repos.fyralabs.com/terra$rel/key.asc" terra-release
+# imports the repo signing keys once; repoquery would otherwise stop at the prompt
+dnf -y -q makecache
+
+echo "==> Fedora $rel: resolving packages"
+missing=0
+for p in $(sed ':a;/\\$/{N;s/\\\n//;ba}' scripts/*.sh | grep -oP 'dnf install -y \K.*' |
+           tr ' ' '\n' | grep -E '^[a-z0-9][a-z0-9._+-]*$' | sort -u); do
+    dnf -q repoquery --available "$p" | grep -q . || { echo "not available on Fedora $rel: $p"; missing=1; }
+done
+exit $missing
