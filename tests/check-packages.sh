@@ -13,6 +13,8 @@ dnf -y -q install \
     "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$rel.noarch.rpm" \
     "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$rel.noarch.rpm"
 grep -hoP 'copr enable -y \K\S+' scripts/*.sh | while read -r c; do dnf -y -q copr enable "$c"; done
+grep -hoP -- '--from-repofile=\K\S+' scripts/*.sh |
+    while read -r r; do dnf -y -q config-manager addrepo --from-repofile="$r"; done
 dnf -y -q install --repofrompath "terra,https://repos.fyralabs.com/terra$rel" \
     --setopt="terra.gpgkey=https://repos.fyralabs.com/terra$rel/key.asc" terra-release
 # imports the repo signing keys once; repoquery would otherwise stop at the prompt

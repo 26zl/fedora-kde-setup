@@ -85,6 +85,7 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   ├── fedora-setup.sh         # Automated post-upgrade setup (run after the initial system upgrade + reboot)
 │   ├── apply-system.sh         # Deploy system/ files to their system paths
 │   ├── emulation-setup.sh      # ES-DE + standalone emulators (PS1/2/3, Wii)
+│   ├── strata-setup.sh         # Local LLM (Strata) on the NVIDIA card — opt-in, ~65 GB
 │   ├── setup-github.sh         # GitHub CLI login + git identity/defaults
 │   ├── rice-start.sh           # Restart Conky
 │   ├── sysinfo.sh              # System health overview in terminal
@@ -848,6 +849,22 @@ Not shipped — provide your own:
 
 ---
 
+## Local LLM (Strata)
+
+[Strata](https://github.com/Niko1221/Strata) runs Qwen3.8-Flash-Next on the NVIDIA card plus system RAM and serves an OpenAI- and Anthropic-compatible API on `127.0.0.1:8080`. Opt-in — about 65 GB of model files and a one-time engine compile:
+
+```bash
+bash scripts/strata-setup.sh
+```
+
+Strata compiles its engine on Linux (its release assets are Windows-only), so the script adds NVIDIA's CUDA repo for `cuda-toolkit-13-4`. It clones Strata pinned to v0.1.40.1 into `~/Prosjekter/Strata` and puts the model files on `/mnt/data/Strata-data` — not under `/home`, which snapper snapshots. `STRATA_DIR` and `STRATA_DATA` override both paths.
+
+- **Model by RAM**: under 40 GiB the Coder (IQ1_M, half the experts — strong at code, answers Norwegian prompts mostly in English); otherwise the full model at the size Strata recommends.
+- **`--vram-reserve-mib 3072`**: the card also drives the desktop. With Strata's default 700 MiB reserve the lock screen could not allocate framebuffers on wake (`kscreenlocker_greet: eglSwapBuffers failed with 0x3003`, `nvidia-drm: Failed to allocate NVKMS memory for GEM object`) and froze. The bigger reserve costs about 20% decode speed (85 → 68 tokens/s on code).
+- **Running it**: `~/Prosjekter/Strata/setup.sh` opens the chat on `http://127.0.0.1:8080`; closing its window stops the model. While it runs it holds ~20 GB of RAM and ~9 GB of VRAM — close it before gaming.
+
+---
+
 ## Scripts
 
 ### `scripts/fedora-setup.sh`
@@ -865,6 +882,10 @@ Deploys every file in `system/` to its live path (see the repository structure a
 ### `scripts/emulation-setup.sh`
 
 Retro emulation setup — installs ES-DE (Terra repo) and the standalone emulators (PS1/PS2/PS3, Wii), grants Flatpak ROM access, and deploys the standalone-emulator defaults. BIOS/firmware/ROMs are user-provided (see the printed manual steps).
+
+### `scripts/strata-setup.sh`
+
+Local LLM setup — CUDA toolkit from NVIDIA's repo, Strata pinned to a release, the model picked by RAM and a 3 GiB VRAM reserve for the desktop. See [Local LLM (Strata)](#local-llm-strata).
 
 ### `scripts/sysinfo.sh` — alias: `sysinfo`
 
