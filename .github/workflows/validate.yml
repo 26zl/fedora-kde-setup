@@ -90,8 +90,9 @@ jobs:
       - name: Add the repos and resolve every package
         run: bash tests/check-packages.sh
 
-  # Same check against the upcoming release. Allowed to fail: it exists to show which
-  # third-party repos still lag before the upgrade, not to block merges.
+  # Same check against the upcoming release. Missing packages are warnings: they show which
+  # third-party repos still lag before the upgrade. Any other failure turns the job red,
+  # still without blocking merges.
   packages-next:
     name: Check every package on the next Fedora release
     runs-on: ubuntu-latest
@@ -106,4 +107,4 @@ jobs:
           persist-credentials: false
 
       - name: Add the repos and resolve every package
-        run: bash tests/check-packages.sh
+        run: bash tests/check-packages.sh warning
