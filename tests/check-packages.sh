@@ -6,6 +6,8 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
+# the next-release job passes "warning": a repo that lags the release is expected there
+level=${1:-error}
 rel=$(rpm -E %fedora)
 echo "==> Fedora $rel: adding repos"
 dnf -y -q install dnf5-plugins
@@ -25,6 +27,7 @@ missing=0
 for p in $(sed ':a;/\\$/{N;s/\\\n//;ba}' scripts/*.sh | grep -oP 'dnf install -y \K.*' |
            tr ' ' '\n' | grep -E '^[a-z0-9][a-z0-9._+-]*$' | sort -u); do
     # -y: makecache does not always import Terra's key; unanswered, the prompt drops the repo
-    dnf -y -q repoquery --available "$p" | grep -q . || { echo "not available on Fedora $rel: $p"; missing=1; }
+    dnf -y -q repoquery --available "$p" | grep -q . || { echo "::$level::not available on Fedora $rel: $p"; missing=1; }
 done
+[ "$level" = warning ] && exit 0
 exit $missing
