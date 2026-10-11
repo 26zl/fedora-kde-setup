@@ -181,6 +181,7 @@ amd="$tmp/drm-amd"
 for slot in 0000:03:00.0 0000:7c:00.0; do
     mkdir -p "$amd/sys/devices/pci0000:00/$slot"
     echo 0x1002 >"$amd/sys/devices/pci0000:00/$slot/vendor"
+    echo "PCI_SLOT_NAME=$slot" >"$amd/sys/devices/pci0000:00/$slot/uevent"
 done
 echo 536870912 >"$amd/sys/devices/pci0000:00/0000:7c:00.0/mem_info_vram_total"
 dgpu="$amd/sys/devices/pci0000:00/0000:03:00.0"
@@ -201,6 +202,7 @@ check "hwstat: AMD vram" "1024 MiB / 16368 MiB" "$(HW_ROOT="$amd" bash "$repo/sc
 intel="$tmp/drm-intel"
 mkdir -p "$intel/sys/devices/pci0000:00/0000:00:02.0" "$intel/sys/class/drm/card0"
 echo 0x8086 >"$intel/sys/devices/pci0000:00/0000:00:02.0/vendor"
+echo "PCI_SLOT_NAME=0000:00:02.0" >"$intel/sys/devices/pci0000:00/0000:00:02.0/uevent"
 ln -s "$intel/sys/devices/pci0000:00/0000:00:02.0" "$intel/sys/class/drm/card0/device"
 check "hwstat: Intel name" "Iris Xe Graphics" "$(HW_ROOT="$intel" bash "$repo/scripts/hwstat.sh" gpu-name)"
 check "hwstat: Intel temp" "" "$(HW_ROOT="$intel" bash "$repo/scripts/hwstat.sh" gpu-temp)"

@@ -60,7 +60,8 @@ drm_gpu() {
     dev=$(drm_device) || return 0
     case "$1" in
         name)
-            slot=$(basename "$(readlink -f "$dev")")
+            slot=$(sed -n 's/^PCI_SLOT_NAME=//p' "$dev/uevent" | head -n 1)
+            [ -n "$slot" ] || slot=$(basename "$(readlink -f "$dev")")
             # "Navi 32 [Radeon RX 7800 XT]" -> "Radeon RX 7800 XT"
             lspci -vmm -s "$slot" 2>/dev/null |
                 sed -n 's/^Device:[[:space:]]*//p' | sed 's/.*\[\(.*\)\].*/\1/' | head -n 1

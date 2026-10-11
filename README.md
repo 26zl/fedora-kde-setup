@@ -23,6 +23,7 @@ The scripts detect the hardware and adapt to it, so the same repo sets up a gami
 | Intel GPU | `intel-media-driver` for H.264/H.265 hardware video |
 | Desktop | tuned `latency-performance`, scx Gaming mode, `workqueue.power_efficient=false` |
 | Laptop | tuned keeps its battery-aware `balanced` profile, scx runs in Auto mode. With hybrid graphics the desktop stays on the integrated GPU |
+| Intel RST/VMD storage | Includes Fedora's `vmd` kernel driver in the initramfs and preloads it at boot on Intel systems |
 | Windows in the UEFI boot list | GRUB remembers the last-booted OS |
 | btrfs root | Snapper snapshots |
 | AMD or Intel CPU | CPU temperature from `k10temp` or `coretemp` in Conky and `sysinfo` |
@@ -58,6 +59,7 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 ├── system/
 │   ├── nvidia-wayland.conf     # /etc/environment.d/ — NVIDIA Wayland env vars (NVIDIA only, not on hybrid laptops)
 │   ├── nvidia-performance.conf # /etc/modprobe.d/ — NVIDIA kernel options (NVIDIA only)
+│   ├── dracut-vmd.conf         # /etc/dracut.conf.d/ — include Intel VMD/RST NVMe driver in initramfs
 │   ├── 99-tweaks.conf          # /etc/sysctl.d/ — performance tweaks
 │   ├── 99-disable-modules.conf # /etc/modprobe.d/ — blacklist unused protocols (attack surface)
 │   ├── dnf.conf                # /etc/dnf/ — DNF settings
@@ -98,6 +100,31 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 └── wallpaper/
     └── wallpaper.jpg           # Darth Vader — dark, teal glow, red lightsaber (5120x2880)
 ```
+
+---
+
+## ASUS VivoBook 15 F1504ZA-WH42 (Windows + Fedora)
+
+The F1504ZA series is an Intel 12th-generation laptop with M.2 NVMe storage. Regional configurations and BIOS options can differ, so first check what this individual machine exposes; do not assume its Intel RST/VMD setting is enabled or switch it blindly.
+
+1. Back up important files and save the Windows BitLocker/device-encryption recovery key somewhere off the laptop. In Windows, turn off Fast Startup (Control Panel → Power Options → Choose what the power buttons do). Use Windows Disk Management to shrink the Windows partition and leave the resulting space **unallocated** for Fedora. Do not delete or format the EFI System, Microsoft Reserved, Windows, or recovery partitions.
+2. Create the Fedora USB with Fedora Media Writer, boot it using the UEFI USB entry, and choose **Try Fedora** first. In the live session, check that the internal SSD appears:
+
+   ```bash
+   lsblk
+   lspci -nnk | grep -A3 -i 'Volume Management Device'
+   lsmod | grep '^vmd'
+   ```
+
+   If the SSD is absent but an Intel VMD controller is listed, try `sudo modprobe vmd` and check `lsblk` again. Fedora uses the in-kernel `vmd` driver for VMD-managed NVMe storage; the Intel Windows IRST/F6 driver is not a Linux driver and should not be copied into Fedora. This repo ensures the installed Fedora system has `vmd` available early in boot. If the live installer still cannot see the SSD, stop before partitioning and check ASUS UEFI storage settings/support. Do **not** change RST/VMD to AHCI while Windows is installed until Windows has been prepared for that storage-mode change; otherwise Windows may fail to boot or request BitLocker recovery.
+
+   If you ever reinstall Windows and its installer cannot see the SSD, get the Windows IRST/VMD "Load driver" package from [ASUS F1504ZA driver support](https://www.asus.com/supportonly/f1504za/helpdesk_download/) and follow [ASUS's storage-driver install instructions](https://www.asus.com/support/FAQ/1044458/). That Windows-only driver is separate from Fedora's built-in `vmd` module.
+3. Start the Fedora installer only after the SSD is visible. Install into the unallocated space created in Windows, keep the existing UEFI boot mode, and reuse the existing EFI System Partition without formatting it. Review the storage summary carefully before confirming.
+4. After Fedora is installed, run the quick setup below. Automatic chassis detection should classify this as a laptop; if the setup summary says desktop, set `FORM_FACTOR=laptop` in the git-ignored `setup.conf`. On this Intel laptop, `apply-system.sh` preloads `vmd` and includes it in the boot initramfs. When Windows is present in the UEFI boot list, `fedora-setup.sh` installs `os-prober` when it is available and enables GRUB's Windows probing and saved-default behavior; if the enabled Fedora repos do not provide `os-prober`, the script warns rather than failing the rest of setup.
+
+Keep Secure Boot enabled for Fedora's signed boot chain unless a specific driver requirement means you must enroll a key. Before any firmware or bootloader change, make sure the BitLocker recovery key is available.
+
+**Keeping these files on the install USB:** writing the ISO with Fedora Media Writer or `dd` wipes the whole drive. Either use [Ventoy](https://www.ventoy.net/) (copy the ISO and this repo onto the same drive as normal files), use a second USB, or run `git clone https://github.com/26zl/fedora-kde-setup.git` from the live session once Wi-Fi is up.
 
 ---
 
@@ -329,7 +356,7 @@ firewall-cmd --list-services  # Verify: dhcpv6-client
 
 ### 12. Dual-Boot (Clock + Sleep/Hibernate)
 
-Only relevant when Windows shares the machine. `fedora-setup.sh` checks the UEFI boot list for a Windows Boot Manager entry and otherwise only sets the clock to UTC.
+Only relevant when Windows shares the machine. `fedora-setup.sh` checks the UEFI boot list for a Windows Boot Manager entry, enables GRUB's saved-default behavior, and enables Windows probing when `os-prober` is available; otherwise it only sets the clock to UTC. If the Windows entry is missing from GRUB after setup, check that both installations use UEFI, then run `sudo os-prober` and `sudo grub2-mkconfig -o /boot/grub2/grub.cfg`.
 
 **Clock** — Windows and Linux must read the hardware clock the same way, or the time is off by your UTC offset after switching OS. Use UTC on both sides:
 

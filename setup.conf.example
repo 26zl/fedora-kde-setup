@@ -5,6 +5,7 @@
 # desktop | laptop | auto. Desktops get the latency tuning (tuned
 # latency-performance, scx Gaming mode, workqueue.power_efficient=false);
 # laptops keep tuned's battery-aware balanced profile and scx Auto mode.
+# The ASUS VivoBook F1504ZA-WH42 is a laptop; auto-detection should identify it.
 #FORM_FACTOR=auto
 
 # NVIDIA driver branch: auto | current | 580xx | none. auto picks current for

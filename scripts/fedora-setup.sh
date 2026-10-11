@@ -222,6 +222,23 @@ sudo timedatectl set-local-rtc 0
 if hw_has_windows; then
     # GRUB re-picks the last-booted OS after a Windows hibernate wake; GRUB_SAVEDEFAULT requires GRUB_DEFAULT=saved
     grub_changed=0
+    if ! command -v os-prober >/dev/null 2>&1; then
+        if sudo dnf -q repoquery --available os-prober | grep -q .; then
+            sudo dnf install -y os-prober
+        else
+            warn "os-prober is not available from the enabled repos; Windows GRUB entry must be configured manually"
+        fi
+    fi
+    if command -v os-prober >/dev/null 2>&1; then
+        if ! grep -qx 'GRUB_DISABLE_OS_PROBER=false' /etc/default/grub; then
+            if grep -q '^GRUB_DISABLE_OS_PROBER=' /etc/default/grub; then
+                sudo sed -i 's/^GRUB_DISABLE_OS_PROBER=.*/GRUB_DISABLE_OS_PROBER=false/' /etc/default/grub
+            else
+                echo 'GRUB_DISABLE_OS_PROBER=false' | sudo tee -a /etc/default/grub >/dev/null
+            fi
+            grub_changed=1
+        fi
+    fi
     if ! grep -q '^GRUB_DEFAULT=saved' /etc/default/grub; then
         if grep -q '^GRUB_DEFAULT=' /etc/default/grub; then
             sudo sed -i 's/^GRUB_DEFAULT=.*/GRUB_DEFAULT=saved/' /etc/default/grub
@@ -234,10 +251,13 @@ if hw_has_windows; then
         echo 'GRUB_SAVEDEFAULT=true' | sudo tee -a /etc/default/grub >/dev/null
         grub_changed=1
     fi
+    if ! sudo grep -qF 'Windows Boot Manager' /boot/grub2/grub.cfg; then
+        grub_changed=1
+    fi
     if [[ $grub_changed -eq 1 ]]; then
         sudo grub2-mkconfig -o /boot/grub2/grub.cfg
     fi
-    ok "RTC set to UTC (Windows must use UTC too); GRUB remembers last-booted OS"
+    ok "RTC set to UTC (Windows must use UTC too); GRUB remembers the last-booted OS"
 else
     ok "RTC set to UTC; no Windows boot entry, GRUB default left alone"
 fi
