@@ -15,6 +15,10 @@ dnf -y -q install \
     "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$rel.noarch.rpm" \
     "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$rel.noarch.rpm"
 grep -hoP 'copr enable -y \K\S+' scripts/*.sh | while read -r c; do dnf -y -q copr enable "$c"; done
+# mirror the per-COPR includepkgs the scripts set, so package resolution sees the
+# same restricted repos the installed system will
+grep -hoP "config-manager setopt '\Kcopr:[^']+" scripts/*.sh |
+    while read -r opt; do dnf -y -q config-manager setopt "$opt"; done
 grep -hoP -- '--from-repofile=\K\S+' scripts/*.sh |
     while read -r r; do dnf -y -q config-manager addrepo --from-repofile="$r"; done
 dnf -y -q install --repofrompath "terra,https://repos.fyralabs.com/terra$rel" \

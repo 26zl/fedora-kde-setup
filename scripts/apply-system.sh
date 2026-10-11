@@ -38,7 +38,7 @@ if [ -n "$NVIDIA_BRANCH" ]; then
     sudo cp system/nvidia-performance.conf /etc/modprobe.d/nvidia-performance.conf
     sudo systemctl enable nvidia-suspend nvidia-hibernate nvidia-resume
     ok "nvidia-performance.conf, suspend/resume services enabled"
-    if hw_is_hybrid_laptop; then
+    if hw_is_hybrid_gpu; then
         # the panel hangs off the integrated GPU; forcing GLX, GBM and VA-API onto
         # NVIDIA would keep the dGPU awake and can break the session
         retire system/nvidia-wayland.conf /etc/environment.d/nvidia-wayland.conf
@@ -58,7 +58,9 @@ sudo cp system/99-tweaks.conf /etc/sysctl.d/99-tweaks.conf
 sudo sysctl --system -q
 sudo cp system/99-disable-modules.conf /etc/modprobe.d/99-disable-modules.conf
 sudo cp system/dnf.conf /etc/dnf/dnf.conf
-sudo cp system/macros.image-language-conf /etc/rpm/macros.image-language-conf
+# built from the locales in use (scripts/lib/hw.sh); a hardcoded en_US:en would
+# strip non-English translations on every later dnf operation
+printf '%%_install_langs %s\n' "$(hw_install_langs)" | sudo tee /etc/rpm/macros.image-language-conf >/dev/null
 sudo cp system/zram-generator.conf /etc/systemd/zram-generator.conf
 sudo cp system/hugepages.conf /etc/tmpfiles.d/hugepages.conf
 sudo systemd-tmpfiles --create /etc/tmpfiles.d/hugepages.conf

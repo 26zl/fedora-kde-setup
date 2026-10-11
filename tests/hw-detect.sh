@@ -27,6 +27,10 @@ pci() {  # root slot vendor device [class]
     echo "0x$4" >"$dev/device"
 }
 
+boot_vga() {  # root slot value
+    echo "$3" >"$1/sys/bus/pci/devices/$2/boot_vga"
+}
+
 chassis() {  # root type
     mkdir -p "$1/sys/class/dmi/id"
     echo "$2" >"$1/sys/class/dmi/id/chassis_type"
@@ -63,6 +67,8 @@ chassis "$desk" 3
 pci "$desk" 0000:01:00.0 10de 2882
 pci "$desk" 0000:01:00.1 10de 22be 0x040300
 pci "$desk" 0000:7c:00.0 1002 164e
+boot_vga "$desk" 0000:01:00.0 1 # the NVIDIA card drives the display
+boot_vga "$desk" 0000:7c:00.0 0 # idle integrated Radeon
 HW_ROOT="$desk"
 check "desktop: GPU count" 2 "$(hw_gpu_count)"
 check "desktop: form factor" desktop "$(hw_form_factor)"
@@ -70,7 +76,7 @@ check "desktop: NVIDIA branch" current "$(hw_nvidia_branch)"
 check "desktop: NVIDIA driver" current "$(hw_nvidia_driver)"
 check "desktop: has AMD GPU" yes "$(yes_no hw_has_gpu 1002)"
 check "desktop: has Intel GPU" no "$(yes_no hw_has_gpu 8086)"
-check "desktop: hybrid laptop" no "$(yes_no hw_is_hybrid_laptop)"
+check "desktop: hybrid GPU (NVIDIA is boot VGA)" no "$(yes_no hw_is_hybrid_gpu)"
 check "desktop: CPU vendor" amd "$(hw_cpu_vendor)"
 check "desktop: no Windows" no "$(yes_no hw_has_windows)"
 # the firmware boot list is only read on a real system (empty HW_ROOT)
@@ -86,7 +92,7 @@ check "desktop: summary" \
 
 FORM_FACTOR=laptop
 check "override: FORM_FACTOR" laptop "$(hw_form_factor)"
-check "override: hybrid follows FORM_FACTOR" yes "$(yes_no hw_is_hybrid_laptop)"
+check "override: hybrid ignores FORM_FACTOR (NVIDIA is boot VGA)" no "$(yes_no hw_is_hybrid_gpu)"
 FORM_FACTOR=auto
 NVIDIA_DRIVER=none
 check "override: NVIDIA_DRIVER=none" "" "$(hw_nvidia_driver)"
@@ -117,9 +123,11 @@ cpu "$hybrid" GenuineIntel
 chassis "$hybrid" 10
 pci "$hybrid" 0000:00:02.0 8086 46a6
 pci "$hybrid" 0000:01:00.0 10de 25a2 0x030200
+boot_vga "$hybrid" 0000:00:02.0 1 # Intel iGPU drives the panel; the 3D-controller dGPU has no boot_vga
 HW_ROOT="$hybrid"
 check "hybrid: form factor" laptop "$(hw_form_factor)"
-check "hybrid: hybrid laptop" yes "$(yes_no hw_is_hybrid_laptop)"
+check "hybrid: hybrid GPU" yes "$(yes_no hw_is_hybrid_gpu)"
+check "hybrid: FORM_FACTOR=desktop still hybrid" yes "$(FORM_FACTOR=desktop yes_no hw_is_hybrid_gpu)"
 check "hybrid: CPU vendor" intel "$(hw_cpu_vendor)"
 
 # Firmware without a useful chassis type: a system battery means laptop, a

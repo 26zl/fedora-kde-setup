@@ -5,6 +5,10 @@
 # Run as regular user — sudo is called where needed
 
 set -e
+[ "$EUID" -ne 0 ] || {
+    echo "run as a normal user, not root" >&2
+    exit 1
+}
 cd "$(dirname "$0")/.."
 
 # shellcheck source=scripts/lib/hw.sh
@@ -39,8 +43,11 @@ fi
 for l in $langs; do
     sudo dnf install -y "glibc-langpack-$l"
 done
-sudo cp system/macros.image-language-conf /etc/rpm/macros.image-language-conf
-ok "langpacks: $(echo "$langs" | xargs); new packages install English translations only"
+# build %_install_langs from the locales in use; a hardcoded en_US:en would strip
+# every non-English translation on each later dnf operation
+install_langs=$(hw_install_langs)
+printf '%%_install_langs %s\n' "$install_langs" | sudo tee /etc/rpm/macros.image-language-conf >/dev/null
+ok "langpacks: $(echo "$langs" | xargs); install_langs: $install_langs"
 
 section "RPM Fusion"
 sudo dnf install -y \
@@ -50,9 +57,14 @@ sudo dnf group upgrade -y core
 ok "RPM Fusion free + nonfree installed"
 
 section "Third-party repos"
-sudo dnf copr enable -y bieszczaders/kernel-cachyos-addons  # scx-scheds
+# Scope each COPR to the packages actually used. Without includepkgs a later
+# dnf upgrade could pull replacements for Fedora's own packages from them.
+sudo dnf copr enable -y bieszczaders/kernel-cachyos-addons
+sudo dnf config-manager setopt 'copr:copr.fedorainfracloud.org:bieszczaders:kernel-cachyos-addons.includepkgs=scx-scheds,scx-tools'
 sudo dnf copr enable -y lihaohong/yazi
+sudo dnf config-manager setopt 'copr:copr.fedorainfracloud.org:lihaohong:yazi.includepkgs=yazi'
 sudo dnf copr enable -y jdxcode/mise
+sudo dnf config-manager setopt 'copr:copr.fedorainfracloud.org:jdxcode:mise.includepkgs=mise'
 # dnf does not expand $releasever inside --setopt values, so the shell fills in the release
 sudo dnf install -y \
     --repofrompath "terra,https://repos.fyralabs.com/terra$(rpm -E %fedora)" \
@@ -60,7 +72,7 @@ sudo dnf install -y \
     terra-release
 # Terra also ships steam, scx-scheds, lact and more; take only starship and ES-DE from it
 sudo dnf config-manager setopt 'terra.includepkgs=terra-release,terra-gpg-keys,starship,emulationstation-de*'
-ok "COPR: scx-scheds, yazi, mise; Terra: starship, ES-DE"
+ok "COPR (scoped): scx-scheds, yazi, mise; Terra: starship, ES-DE"
 
 section "GPU drivers"
 case "$NVIDIA_BRANCH" in
@@ -299,6 +311,13 @@ if [ "$(findmnt -no FSTYPE /)" = btrfs ]; then
     if ! sudo snapper list-configs | grep -q "^home"; then
         sudo snapper -c home create-config /home || warn "home config not created (subvolume already covered?)"
     fi
+    # /home changes constantly; its timeline snapshots are what fill the disk, so
+    # keep only manual and number-cleanup snapshots there and let / carry the timeline
+    sudo snapper -c home set-config TIMELINE_CREATE=no || warn "home timeline not disabled"
+    # number cleanup needs a btrfs qgroup to weigh the space snapshots pin; without
+    # one the default limits still let snapshots fill the filesystem
+    sudo snapper -c root setup-quota || warn "root quota not set up"
+    sudo snapper -c home setup-quota || warn "home quota not set up"
     if ! sudo snapper -c root list 2>/dev/null | grep -q "Initial clean setup"; then
         sudo snapper -c root create --description "Initial clean setup" --cleanup-algorithm number || warn "root snapshot failed"
     fi
@@ -306,7 +325,7 @@ if [ "$(findmnt -no FSTYPE /)" = btrfs ]; then
         sudo snapper -c home create --description "Initial home snapshot" --cleanup-algorithm number || warn "home snapshot failed"
     fi
     sudo systemctl enable --now snapper-timeline.timer snapper-cleanup.timer
-    ok "Snapper: root + home snapshots, timeline enabled"
+    ok "Snapper: root + home snapshots, / timeline + quota, /home timeline off"
 else
     warn "root filesystem is not btrfs — Snapper skipped"
 fi
@@ -330,17 +349,32 @@ mkdir -p ~/.config/kitty ~/.config/conky \
          ~/.local/share/plasma/desktoptheme \
          ~/.config/systemd/user ~/.config/fastfetch
 
-cp configs/kitty/kitty.conf ~/.config/kitty/kitty.conf
-cp configs/fastfetch/config.jsonc ~/.config/fastfetch/config.jsonc
-cp configs/starship/starship.toml ~/.config/starship.toml
-cp configs/conky/conky.conf ~/.config/conky/conky.conf
-cp configs/kde/DarthVader.colors ~/.local/share/color-schemes/DarthVader.colors
-cp configs/kde/kvantum/kvantum.kvconfig ~/.config/Kvantum/kvantum.kvconfig
-cp -rT configs/kde/plasma-theme ~/.local/share/plasma/desktoptheme/darth-vader
-cp configs/fish/config.fish ~/.config/fish/config.fish
-cp configs/fish/functions/ya.fish ~/.config/fish/functions/ya.fish
-cp wallpaper/wallpaper.jpg ~/Pictures/wallpaper.jpg
-ok "User configs written"
+# Deploy a repo config without silently discarding an existing file: an unchanged
+# target is left alone, and one that differs is kept as a numbered backup.
+install_config() {  # src dest
+    if [ -d "$1" ]; then
+        if [ -d "$2" ] && diff -rq "$1" "$2" >/dev/null 2>&1; then
+            return
+        fi
+        cp -rT --backup=numbered "$1" "$2"
+    elif [ ! -e "$2" ]; then
+        cp "$1" "$2"
+    elif ! cmp -s "$1" "$2"; then
+        cp --backup=numbered "$1" "$2"
+    fi
+}
+
+install_config configs/kitty/kitty.conf ~/.config/kitty/kitty.conf
+install_config configs/fastfetch/config.jsonc ~/.config/fastfetch/config.jsonc
+install_config configs/starship/starship.toml ~/.config/starship.toml
+install_config configs/conky/conky.conf ~/.config/conky/conky.conf
+install_config configs/kde/DarthVader.colors ~/.local/share/color-schemes/DarthVader.colors
+install_config configs/kde/kvantum/kvantum.kvconfig ~/.config/Kvantum/kvantum.kvconfig
+install_config configs/kde/plasma-theme ~/.local/share/plasma/desktoptheme/darth-vader
+install_config configs/fish/config.fish ~/.config/fish/config.fish
+install_config configs/fish/functions/ya.fish ~/.config/fish/functions/ya.fish
+install_config wallpaper/wallpaper.jpg ~/Pictures/wallpaper.jpg
+ok "User configs written (existing files that differ kept as numbered backups)"
 
 cp scripts/rice-start.sh scripts/sysinfo.sh scripts/hwstat.sh scripts/deep-health.sh scripts/mok-reenroll.sh ~/scripts/
 chmod +x ~/scripts/{rice-start,sysinfo,hwstat,deep-health,mok-reenroll}.sh
