@@ -102,9 +102,21 @@ hw_nvidia_driver() {
     esac
 }
 
-# Laptop whose display runs on an integrated GPU next to an NVIDIA one.
-hw_is_hybrid_laptop() {
-    [ "$(hw_form_factor)" = laptop ] && hw_has_gpu 10de && [ "$(hw_gpu_count)" -gt 1 ]
+# A GPU layout where the NVIDIA card is not the boot display: an integrated GPU
+# drives the panel next to a discrete NVIDIA one. Decided from the hardware
+# (boot_vga is 0, or absent on a 3D-controller dGPU), not FORM_FACTOR — forcing
+# GLX, GBM and VA-API onto an NVIDIA GPU that is not the display keeps it awake
+# and can break the session.
+hw_is_hybrid_gpu() {
+    local vendor _ slot boot_vga
+    [ "$(hw_gpu_count)" -gt 1 ] || return 1
+    while read -r vendor _ slot; do
+        [ "$vendor" = 10de ] || continue
+        boot_vga=0
+        read -r boot_vga 2>/dev/null <"$HW_ROOT/sys/bus/pci/devices/$slot/boot_vga" || boot_vga=0
+        [ "$boot_vga" = 1 ] || return 0
+    done < <(hw_gpus)
+    return 1
 }
 
 # Windows shares this machine: its boot manager is in the UEFI boot list, or on
@@ -140,4 +152,18 @@ hw_summary() {
     done < <(hw_gpus)
     nvidia=$(hw_nvidia_driver)
     echo "$(hw_form_factor), $(hw_cpu_vendor) CPU, GPU:${names:- none}${nvidia:+ (NVIDIA driver: $nvidia)}$(hw_has_windows && echo ', Windows dual-boot')"
+}
+
+# RPM %_install_langs value: English plus every locale in use, each as both the
+# full ll_CC and the bare ll form, so dnf keeps those translations instead of
+# stripping everything but English on later operations.
+hw_install_langs() {
+    local lc langs=en_US:en
+    while read -r lc; do
+        [ -n "$lc" ] || continue
+        case "$lc" in en | en_*) continue ;; esac
+        langs="$langs:$lc"
+        [ "$lc" = "${lc%%_*}" ] || langs="$langs:${lc%%_*}"
+    done < <(locale 2>/dev/null | sed -n 's/^[A-Z_]*="\{0,1\}\([a-z]\{2,3\}\(_[A-Z]\{2,3\}\)\{0,1\}\).*/\1/p' | sort -u)
+    echo "$langs"
 }

@@ -67,7 +67,6 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   ├── scx_loader-laptop.toml  # /etc/scx_loader/ — scx_bpfland Auto mode on laptops
 │   ├── resolved-hardening.conf # /etc/systemd/resolved.conf.d/ — DNSSEC, DoT, LLMNR/mDNS off
 │   ├── tuned-ppd.conf          # /etc/tuned/ppd.conf — PPD → tuned profile map
-│   ├── macros.image-language-conf # /etc/rpm/ — limit langpacks to en_US
 │   ├── ntsync.conf             # /etc/modules-load.d/ — load ntsync at boot
 │   ├── 99-ntsync.rules         # /etc/udev/rules.d/ — ntsync user access
 │   ├── 99-lamzu.rules          # /etc/udev/rules.d/ — LAMZU mouse configurator access (by USB ID)
