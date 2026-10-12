@@ -1012,6 +1012,15 @@ bash scripts/verify-setup.sh       # on the first boot of the new release
 
 `/etc/dnf/dnf.conf`, `/etc/tuned/ppd.conf` and `/etc/plasmalogin.conf` are the package-owned files this setup replaces. When `verify-setup.sh` reports `.rpmnew` versions of them or other drift, re-run `scripts/apply-system.sh` instead of taking the `.rpmnew` files.
 
+What Fedora 45 changes for this setup (from its [ChangeSet](https://fedoraproject.org/wiki/Releases/45/ChangeSet)):
+
+- **kmscon replaces the kernel text console.** It takes the keyboard layout from `localectl` and falls back to fbcon when it cannot start, so `mok-reenroll.sh` still runs from a TTY. `setfont` and `loadkeys` no longer apply there.
+- **ptrace**: debuggers (`gdb`, `strace`, `ltrace`, `elfutils`, `systemtap`) now pull in `yama-ptrace-enable`, which sets `kernel.yama.ptrace_scope=0`. `99-tweaks.conf` keeps it at 1.
+- **RPM signatures are mandatory**: `rpm -i` refuses an unsigned package or one whose key is not imported. Install local RPMs with `dnf install ./file.rpm`, which is also how akmods installs its NVIDIA build.
+- **Repo files move to `/usr/share/dnf5/repos.d`.** The `includepkgs` and `exclude` limits the scripts set live in `/etc/dnf/repos.override.d` and keep applying. An edited packaged repo file comes back as `.rpmsave`.
+- **Lua 5.5**: Conky is rebuilt against it, and `configs/conky/conky.conf` parses and runs unchanged.
+- **Kernel crypto userspace API (AF_ALG) gets restricted.** bluetoothd uses it, so pair a Bluetooth device once after the upgrade; `verify-setup.sh` checks that the service still runs.
+
 ---
 
 ## Sources & Credits
