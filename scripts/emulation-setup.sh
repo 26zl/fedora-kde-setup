@@ -19,8 +19,14 @@ section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; }
 section "ES-DE frontend (Terra repo)"
 # fedora-setup.sh adds Terra and limits it to the packages taken from it
 rpm -q terra-release &>/dev/null || { warn "Terra repo missing — run scripts/fedora-setup.sh first"; exit 1; }
-sudo dnf install -y emulationstation-de
-ok "ES-DE installed"
+# Terra builds ES-DE for a new Fedora release some time after the release ships
+if dnf -q repoquery --available emulationstation-de 2>/dev/null | grep -q .; then
+    sudo dnf install -y emulationstation-de
+    ok "ES-DE installed"
+else
+    warn "Terra has no ES-DE build for Fedora $(rpm -E %fedora) yet: use the AppImage from es-de.org"
+    warn "and re-run this script once Terra has it; the emulators below install either way"
+fi
 
 section "Emulators (Flatpak)"
 flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo

@@ -836,7 +836,7 @@ bash scripts/emulation-setup.sh
 | Wii | Dolphin | Flatpak |
 | Frontend | ES-DE (EmulationStation Desktop Edition) | Terra repo |
 
-`fedora-setup.sh` adds Terra and limits it with `includepkgs` to `terra-release`, `terra-gpg-keys`, `starship` and `emulationstation-de`; unrestricted, its steam, scx-scheds and lact builds would shadow the RPM Fusion and COPR ones. `emulation-setup.sh` stops if Terra is missing.
+`fedora-setup.sh` adds Terra and limits it with `includepkgs` to `terra-release`, `terra-gpg-keys`, `starship` and `emulationstation-de`; unrestricted, its steam, scx-scheds and lact builds would shadow the RPM Fusion and COPR ones. `emulation-setup.sh` stops if Terra is missing. Terra builds ES-DE for a new Fedora release some time after it ships (a week before Fedora 45's release it had none); until then the script skips ES-DE with a warning and installs the emulators, and the AppImage from [es-de.org](https://es-de.org/) works in the meantime.
 
 ### Default emulators (standalone, not libretro)
 
