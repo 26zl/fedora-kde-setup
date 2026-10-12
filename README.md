@@ -90,7 +90,9 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   ├── sysinfo.sh              # System health overview in terminal
 │   ├── hwstat.sh               # CPU/GPU readings for Conky and sysinfo (AMD, Intel, NVIDIA)
 │   ├── deep-health.sh          # Full hardware audit — firmware, SMART, btrfs scrub, self-test
-│   └── mok-reenroll.sh         # Re-enroll the akmods MOK after a BIOS flash
+│   ├── mok-reenroll.sh         # Re-enroll the akmods MOK after a BIOS flash
+│   ├── fedora-upgrade.sh       # Upgrade to the next Fedora release (checks, snapshot, download)
+│   └── verify-setup.sh         # Check the live system against the setup (after setup or an upgrade)
 ├── tests/
 │   ├── hw-detect.sh            # Detection and hwstat tests against fixture sysfs trees
 │   └── check-packages.sh       # CI: every package the scripts install resolves in the scoped repos
@@ -922,6 +924,14 @@ Firmware time far above normal (25 s or more on a desktop board) can mean the em
 
 Re-enrolls the akmods signing key. A BIOS flash clears UEFI NVRAM and takes the MOK list with it, so locally signed modules such as NVIDIA's fail signature verification. With NVIDIA, nouveau claims the card and Plasma comes up to a black screen. The machine still boots to a TTY — run this from there, reboot, then pick Enroll MOK on the blue screen. Exits early if the key is still enrolled or Secure Boot is off.
 
+### `scripts/fedora-upgrade.sh`
+
+Upgrades to the next Fedora release; see [Upgrading Fedora](#upgrading-fedora). It downloads and leaves the reboot to `sudo dnf system-upgrade reboot`.
+
+### `scripts/verify-setup.sh`
+
+Checks the live system against what the setup configures: failed units, kernel arguments, auditd, zram, the sched_ext scheduler, tuned, the NVIDIA driver, gamescope's capability, NTSync, the firewall, SELinux, every deployed `system/` file, pending `.rpmnew` files and, when installed, ES-DE and the CUDA repo exclude. Run it after `fedora-setup.sh` and on the first boot of a new Fedora release. It changes nothing and exits 1 when a check fails.
+
 ### `scripts/rice-start.sh` — alias: `rice`
 
 Restarts Conky.
@@ -942,7 +952,7 @@ Aliases (`rice`, `sysinfo`) are already in `configs/fish/config.fish` — deploy
 
 ## Verification Checklist
 
-Run after full setup to confirm everything is working:
+`bash scripts/verify-setup.sh` runs these checks and more for the detected hardware, compares every deployed `system/` file with the repo, and exits non-zero when one fails. By hand, after a full setup:
 
 ```bash
 # Kernel + Secure Boot
@@ -985,6 +995,22 @@ pgrep conky && echo "Conky running"
 - **System files**: every target listed under Repository Structure is a file the setup adds, so deleting it undoes it, except `/etc/dnf/dnf.conf`, `/etc/tuned/ppd.conf` and `/etc/plasmalogin.conf`, which replace package defaults. Delete those and run `sudo dnf reinstall <package>` (`rpm -qf <file>` names it); a reinstall alone keeps the edited file because it is `%config(noreplace)`.
 - **Services, firewall, KDE settings**: the commands in the guide above are the record; `systemctl unmask`, `firewall-cmd --permanent --add-service=<name>` and `kwriteconfig6` with the old value reverse them.
 - **User configs**: `fedora-setup.sh` keeps every config it replaced as `<file>.~N~` next to it.
+
+---
+
+## Upgrading Fedora
+
+```bash
+bash scripts/fedora-upgrade.sh     # to the next release, e.g. 44 -> 45; downloads, does not reboot
+sudo dnf system-upgrade reboot     # runs the upgrade offline and boots into the new release
+bash scripts/verify-setup.sh       # on the first boot of the new release
+```
+
+`fedora-upgrade.sh` stops until the new release is out (its directory on dl.fedoraproject.org goes live on release day), brings the current release up to date and asks for a reboot if that installed a newer kernel. It refuses to start with less than 10 GB free on `/` or 200 MB on `/boot`, or on an NVIDIA machine whose driver is not loaded or whose akmods key is not enrolled under Secure Boot. Then it takes a snapper snapshot of `/` and downloads the upgrade.
+
+`skip_if_unavailable=True` in `dnf.conf` keeps a third-party repo that has no build for the new release from stopping the download. A package built against libraries the new release replaced does stop it: the script names it and asks before passing `--allowerasing`, which removes it; reinstall it once its repo catches up. For Fedora 45 that is `emulationstation-de` from Terra, linked against FFmpeg 8 while Fedora 45 moves to FFmpeg 9. akmods rebuilds the NVIDIA module for the new kernel, at the latest on the first boot before the login screen. Fedora 45's mandatory RPM signatures do not stop it, because akmods installs its local build through `dnf --nogpgcheck`.
+
+`/etc/dnf/dnf.conf`, `/etc/tuned/ppd.conf` and `/etc/plasmalogin.conf` are the package-owned files this setup replaces. When `verify-setup.sh` reports `.rpmnew` versions of them or other drift, re-run `scripts/apply-system.sh` instead of taking the `.rpmnew` files.
 
 ---
 
