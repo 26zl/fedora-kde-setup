@@ -52,6 +52,8 @@ for a in $args; do grep -qw -- "$a" /proc/cmdline || missing+=" $a"; done
 if [ -z "$missing" ]; then pass "kernel arguments: $args"; else fail "kernel arguments missing:$missing"; fi
 check "auditd running" systemctl is-active -q auditd
 check "zram swap active" zram_active
+# bluetoothd uses the kernel crypto API (AF_ALG) that Fedora 45 starts restricting
+if systemctl is-enabled -q bluetooth 2>/dev/null; then check "bluetooth running" systemctl is-active -q bluetooth; fi
 
 section "Scheduler and tuning"
 want=$(sed -n 's/^default_sched = "scx_\(.*\)"/\1/p' /etc/scx_loader/config.toml 2>/dev/null)
