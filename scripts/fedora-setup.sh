@@ -62,7 +62,8 @@ section "Third-party repos"
 sudo dnf copr enable -y bieszczaders/kernel-cachyos-addons
 sudo dnf config-manager setopt 'copr:copr.fedorainfracloud.org:bieszczaders:kernel-cachyos-addons.includepkgs=scx-scheds,scx-tools'
 sudo dnf copr enable -y lihaohong/yazi
-sudo dnf config-manager setopt 'copr:copr.fedorainfracloud.org:lihaohong:yazi.includepkgs=yazi'
+# resvg: yazi's SVG previews; no other enabled repo ships it
+sudo dnf config-manager setopt 'copr:copr.fedorainfracloud.org:lihaohong:yazi.includepkgs=yazi,resvg'
 sudo dnf copr enable -y jdxcode/mise
 sudo dnf config-manager setopt 'copr:copr.fedorainfracloud.org:jdxcode:mise.includepkgs=mise'
 # dnf does not expand $releasever inside --setopt values, so the shell fills in the release
