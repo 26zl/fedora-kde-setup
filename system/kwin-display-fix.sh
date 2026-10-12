@@ -9,7 +9,8 @@
 #    that were off stay off, and laptop panels are left to KWin's lid handling.
 AUTOSUSPEND_DEVS="048d:5711 046d:c548"
 DEAUTH_DEVS="373e:001e"
-OUTPUTS_STATE=/run/kwin-display-fix.outputs
+# SELinux lets systemd_sleep_t create files only in systemd-sleep's own state directory, not in /run
+OUTPUTS_STATE=/var/lib/systemd/sleep/kwin-display-fix.outputs
 
 find_dev() {
     local vid="${1%%:*}" pid="${1##*:}"
@@ -71,10 +72,10 @@ if [ "$1" = "post" ]; then
     if [ -d /sys/module/amdgpu ]; then
         sleep 4
         # the external outputs that were on before sleep; every connected one
-        # when nothing was recorded (no session was found before sleep)
-        [ -e "$OUTPUTS_STATE" ] || : > "$OUTPUTS_STATE"
+        # when nothing was recorded (no session before sleep, or no state file)
+        before=$(cat "$OUTPUTS_STATE" 2>/dev/null)
         mapfile -t enable < <(in_session kscreen-doctor -j 2>/dev/null |
-            jq -r --rawfile before "$OUTPUTS_STATE" '
+            jq -r --arg before "$before" '
                 ($before | split("\n") | map(select(length > 0))) as $was
                 | .outputs[]
                 | select(.connected)

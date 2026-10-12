@@ -2,6 +2,9 @@
 # GitHub CLI + git authentication. Run as regular user (NO sudo):
 #   bash scripts/setup-github.sh
 
+# takes no options: --help (or any argument) prints this header instead of running
+[ $# -eq 0 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; case $1 in -h | --help) exit 0 ;; *) exit 2 ;; esac; }
+
 set -e
 
 # gh stores credentials per user and opens the user's browser — sudo breaks both
@@ -12,6 +15,7 @@ fi
 
 TEAL='\033[38;2;0;200;168m'
 RESET='\033[0m'
+if [ ! -t 1 ] || [ -n "${NO_COLOR-}" ]; then TEAL='' RESET=''; fi
 
 ok()      { echo -e "  ${TEAL}✓${RESET} $1"; }
 info()    { echo -e "  ${TEAL}→${RESET} $1"; }

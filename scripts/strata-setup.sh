@@ -2,6 +2,9 @@
 # Local LLM: Strata runs Qwen3.8-Flash-Next on the NVIDIA card plus system RAM.
 # Opt-in — about 65 GB of model files and a one-time engine compile.
 
+# takes no options: --help (or any argument) prints this header instead of running
+[ $# -eq 0 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; case $1 in -h | --help) exit 0 ;; *) exit 2 ;; esac; }
+
 set -e
 cd "$(dirname "$0")/.."
 
@@ -11,6 +14,7 @@ source scripts/lib/hw.sh
 TEAL='\033[38;2;0;200;168m'
 RED='\033[38;2;170;28;28m'
 RESET='\033[0m'
+if [ ! -t 1 ] || [ -n "${NO_COLOR-}" ]; then TEAL='' RED='' RESET=''; fi
 
 ok()      { echo -e "  ${TEAL}✓${RESET} $1"; }
 warn()    { echo -e "  ${RED}!${RESET} $1"; }
@@ -31,6 +35,9 @@ section "CUDA toolkit"
 [ -f /etc/yum.repos.d/cuda-fedora44.repo ] ||
     sudo dnf config-manager addrepo \
         --from-repofile=https://developer.download.nvidia.com/compute/cuda/repos/fedora44/x86_64/cuda-fedora44.repo
+# NVIDIA's own driver packages in this repo replace RPM Fusion's driver or collide with its
+# files; this is the exclude list from rpmfusion.org/Howto/CUDA
+sudo dnf config-manager setopt 'cuda-fedora44-x86_64.exclude=nvidia-driver*,cuda-drivers*,nvidia-modprobe,nvidia-persistenced,nvidia-settings,nvidia-libXNVCtrl*,nvidia-xconfig,nvidia-open,nvidia-imex,nvidia-kmod-common,libnvidia-fbc,kmod-nvidia-*-dkms,nvidia-fs*,nvidia-gds*,xorg-x11-nvidia*'
 sudo dnf install -y cuda-toolkit-13-4 gcc-c++ git
 ok "CUDA 13.4 toolkit (NVIDIA repo), gcc-c++, git"
 

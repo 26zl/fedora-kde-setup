@@ -15,14 +15,14 @@ dnf -y -q install \
     "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$rel.noarch.rpm" \
     "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$rel.noarch.rpm"
 grep -hoP 'copr enable -y \K\S+' scripts/*.sh | while read -r c; do dnf -y -q copr enable "$c"; done
-# mirror the per-COPR includepkgs the scripts set, so package resolution sees the
-# same restricted repos the installed system will
-grep -hoP "config-manager setopt '\Kcopr:[^']+" scripts/*.sh |
-    while read -r opt; do dnf -y -q config-manager setopt "$opt"; done
 grep -hoP -- '--from-repofile=\K\S+' scripts/*.sh |
     while read -r r; do dnf -y -q config-manager addrepo --from-repofile="$r"; done
 dnf -y -q install --repofrompath "terra,https://repos.fyralabs.com/terra$rel" \
     --setopt="terra.gpgkey=https://repos.fyralabs.com/terra$rel/key.asc" terra-release
+# mirror every includepkgs and exclude the scripts set (COPRs, Terra, CUDA), so package
+# resolution sees the same restricted repos the installed system will
+grep -hoP "config-manager setopt '\K[^']+" scripts/*.sh |
+    while read -r opt; do dnf -y -q config-manager setopt "$opt"; done
 # fetches every repo's metadata and signing keys once, so the queries below stay fast
 dnf -y -q makecache
 

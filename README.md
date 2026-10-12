@@ -92,7 +92,8 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   ├── deep-health.sh          # Full hardware audit — firmware, SMART, btrfs scrub, self-test
 │   └── mok-reenroll.sh         # Re-enroll the akmods MOK after a BIOS flash
 ├── tests/
-│   └── hw-detect.sh            # Detection and hwstat tests against fixture sysfs trees
+│   ├── hw-detect.sh            # Detection and hwstat tests against fixture sysfs trees
+│   └── check-packages.sh       # CI: every package the scripts install resolves in the scoped repos
 ├── setup.conf.example          # Per-machine overrides; copy to setup.conf
 └── wallpaper/
     └── wallpaper.jpg           # Darth Vader — dark, teal glow, red lightsaber (5120x2880)
@@ -107,7 +108,8 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 sudo dnf upgrade --refresh -y
 sudo reboot
 
-# 2. After the reboot, clone and run the setup
+# 2. After the reboot, clone and run the setup (the KDE image does not ship git)
+sudo dnf install -y git
 git clone https://github.com/26zl/fedora-kde-setup.git ~/fedora-setup
 cd ~/fedora-setup
 cp setup.conf.example setup.conf   # optional: only to override the detection
@@ -222,10 +224,14 @@ The `tuned-ppd.conf` maps KDE's "Performance" power mode to `latency-performance
 
 ```bash
 sudo dnf copr enable -y bieszczaders/kernel-cachyos-addons  # scx-scheds is not in the Fedora repos
+sudo dnf config-manager setopt 'copr:copr.fedorainfracloud.org:bieszczaders:kernel-cachyos-addons.includepkgs=scx-scheds,scx-tools'
 sudo dnf install -y scx-scheds
-sudo systemctl enable --now scx_loader.service
+sudo mkdir -p /etc/scx_loader
 sudo cp system/scx_loader.toml /etc/scx_loader/config.toml
+sudo systemctl enable --now scx_loader.service
 ```
+
+`includepkgs` limits the COPR to the two packages used here; unrestricted, a later `dnf upgrade` can pull its builds of other packages, and `scx-scheds` would pull the `scx-tools-git` snapshot instead of the `scx-tools` release. `fedora-setup.sh` scopes every COPR it adds the same way.
 
 On a laptop, deploy `system/scx_loader-laptop.toml` instead: Auto mode, because Gaming mode keeps tasks on the fastest cores at the cost of battery.
 
@@ -356,11 +362,17 @@ Fedora installs on BTRFS by default. Snapper integrates natively with Fedora's s
 sudo dnf install -y snapper btrfs-assistant
 sudo snapper -c root create-config /
 sudo snapper -c home create-config /home
+sudo snapper -c home set-config TIMELINE_CREATE=no
+sudo snapper -c root setup-quota
+sudo snapper -c home setup-quota
 sudo snapper -c root create --description "Initial clean setup" --cleanup-algorithm number
+sudo snapper -c home create --description "Initial home snapshot" --cleanup-algorithm number
 sudo systemctl enable --now snapper-timeline.timer snapper-cleanup.timer
 ```
 
 > Note: Fedora often pre-configures snapper. If `create-config` returns "subvolume already covered", skip it and go straight to creating a snapshot.
+
+`/home` changes constantly, so its hourly timeline snapshots are what fill the disk; it keeps only manual and number-cleanup snapshots, and `/` carries the timeline. The number cleanup needs a btrfs qgroup to weigh how much space snapshots pin, which `setup-quota` creates.
 
 **BTRFS Assistant** (GUI) is available in the app menu — shows all snapshots and allows one-click restore.
 
@@ -610,6 +622,7 @@ make install PREFIX=~/.local
 
 ```bash
 sudo dnf copr enable -y jdxcode/mise
+sudo dnf config-manager setopt 'copr:copr.fedorainfracloud.org:jdxcode:mise.includepkgs=mise'
 sudo dnf install -y mise
 eval "$(mise activate bash)"
 ```
@@ -618,8 +631,11 @@ eval "$(mise activate bash)"
 
 ```bash
 sudo dnf copr enable -y lihaohong/yazi
+sudo dnf config-manager setopt 'copr:copr.fedorainfracloud.org:lihaohong:yazi.includepkgs=yazi,resvg'
 sudo dnf install -y yazi
 ```
+
+`resvg` renders yazi's SVG previews and comes from the same COPR.
 
 ---
 
@@ -856,7 +872,7 @@ Not shipped — provide your own:
 bash scripts/strata-setup.sh
 ```
 
-Strata compiles its engine on Linux (its release assets are Windows-only), so the script adds NVIDIA's CUDA repo for `cuda-toolkit-13-4`. It clones Strata pinned to v0.1.40.1 into `~/Prosjekter/Strata` and puts the model files on `/mnt/data/Strata-data` — not under `/home`, which snapper snapshots. `STRATA_DIR` and `STRATA_DATA` override both paths.
+Strata compiles its engine on Linux (its release assets are Windows-only), so the script adds NVIDIA's CUDA repo for `cuda-toolkit-13-4`, with NVIDIA's own driver packages excluded as [RPM Fusion recommends](https://rpmfusion.org/Howto/CUDA): they replace RPM Fusion's driver or collide with its files, and the next driver update then fails. It clones Strata pinned to v0.1.40.1 into `~/Prosjekter/Strata` and puts the model files on `/mnt/data/Strata-data` — not under `/home`, which snapper snapshots. `STRATA_DIR` and `STRATA_DATA` override both paths.
 
 - **Model by RAM**: under 40 GiB the Coder (IQ1_M, half the experts — strong at code, answers Norwegian prompts mostly in English); otherwise the full model at the size Strata recommends.
 - **`--vram-reserve-mib 3072`**: the card also drives the desktop. With Strata's default 700 MiB reserve the lock screen could not allocate framebuffers on wake (`kscreenlocker_greet: eglSwapBuffers failed with 0x3003`, `nvidia-drm: Failed to allocate NVKMS memory for GEM object`) and froze. The bigger reserve costs about 20% decode speed (85 → 68 tokens/s on code).
@@ -866,13 +882,15 @@ Strata compiles its engine on Linux (its release assets are Windows-only), so th
 
 ## Scripts
 
+Apart from `hwstat.sh`, which takes the reading to print, the scripts take no options: `--help`, or any other argument, prints the script's header and exits without changing anything. Output is plain text when piped or with `NO_COLOR` set.
+
 ### `scripts/fedora-setup.sh`
 
 Automated setup for a fresh Fedora 44 KDE install. Run after the initial system upgrade + reboot. It prints the detected hardware first, installs the matching GPU drivers, and deploys the `system/` files via `apply-system.sh`. Secure Boot MOK enrollment and BIOS settings stay manual (see the guide).
 
 ### `scripts/apply-system.sh`
 
-Deploys every file in `system/` to its live path (see the repository structure above) and reloads what can be reloaded without a reboot. Hardware-specific files follow the detection: NVIDIA configs only with an NVIDIA driver, the desktop or laptop variants of tuned, scx and the kernel parameters. A config it deployed earlier that no longer fits the hardware, such as the NVIDIA files after a GPU swap, is removed as long as it is unedited. `fedora-setup.sh` calls it during setup; run it standalone to re-apply system configs after editing them.
+Takes a snapper snapshot of `/` (see [Undoing Changes](#undoing-changes)), then deploys every file in `system/` to its live path (see the repository structure above) and reloads what can be reloaded without a reboot, including a `scx_loader` restart when its config changed. Hardware-specific files follow the detection: NVIDIA configs only with an NVIDIA driver, the desktop or laptop variants of tuned, scx and the kernel parameters. A config it deployed earlier that no longer fits the hardware, such as the NVIDIA files after a GPU swap, is removed as long as it is unedited. `fedora-setup.sh` calls it during setup; run it standalone to re-apply system configs after editing them.
 
 ### `scripts/lib/hw.sh` and `setup.conf`
 
@@ -958,6 +976,15 @@ firewall-cmd --list-services  # dhcpv6-client
 # Rice
 pgrep conky && echo "Conky running"
 ```
+
+---
+
+## Undoing Changes
+
+- **Restore point**: `apply-system.sh` takes a snapper snapshot of `/` before it changes anything and prints its number. `sudo snapper -c root status <n>..0` lists what changed since, `sudo snapper -c root undochange <n>..0 <path>` reverts a file, and BTRFS Assistant does the same from the GUI. `/boot` is a separate filesystem, so kernel arguments are not in the snapshot: remove them with `sudo grubby --update-kernel=ALL --remove-args="<args>"`.
+- **System files**: every target listed under Repository Structure is a file the setup adds, so deleting it undoes it, except `/etc/dnf/dnf.conf`, `/etc/tuned/ppd.conf` and `/etc/plasmalogin.conf`, which replace package defaults. Delete those and run `sudo dnf reinstall <package>` (`rpm -qf <file>` names it); a reinstall alone keeps the edited file because it is `%config(noreplace)`.
+- **Services, firewall, KDE settings**: the commands in the guide above are the record; `systemctl unmask`, `firewall-cmd --permanent --add-service=<name>` and `kwriteconfig6` with the old value reverse them.
+- **User configs**: `fedora-setup.sh` keeps every config it replaced as `<file>.~N~` next to it.
 
 ---
 
