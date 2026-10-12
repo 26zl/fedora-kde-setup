@@ -2,11 +2,15 @@
 # Full hardware audit (~6 min: btrfs scrub + NVMe self-test); sysinfo.sh is the quick glance.
 # Changes nothing except what the scrub repairs from btrfs' duplicate metadata.
 
+# takes no options: --help (or any argument) prints this header instead of running
+[ $# -eq 0 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; case $1 in -h | --help) exit 0 ;; *) exit 2 ;; esac; }
+
 set -e
 
 TEAL='\033[38;2;0;200;168m'
 RED='\033[38;2;170;28;28m'
 RESET='\033[0m'
+if [ ! -t 1 ] || [ -n "${NO_COLOR-}" ]; then TEAL='' RED='' RESET=''; fi
 
 ok()      { echo -e "  ${TEAL}✓${RESET} $1"; }
 warn()    { echo -e "  ${RED}!${RESET} $1"; }

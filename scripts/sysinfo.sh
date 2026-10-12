@@ -1,6 +1,9 @@
 #!/bin/bash
 # System status — quick health overview
 
+# takes no options: --help (or any argument) prints this header instead of running
+[ $# -eq 0 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; case $1 in -h | --help) exit 0 ;; *) exit 2 ;; esac; }
+
 HWSTAT="$(dirname "$(readlink -f "$0")")/hwstat.sh"
 
 TEAL='\033[38;2;0;200;168m'
@@ -8,6 +11,7 @@ RED='\033[38;2;170;28;28m'
 GRAY='\033[38;2;144;168;160m'
 WHITE='\033[38;2;200;216;208m'
 RESET='\033[0m'
+if [ ! -t 1 ] || [ -n "${NO_COLOR-}" ]; then TEAL='' RED='' GRAY='' WHITE='' RESET=''; fi
 
 line() { echo -e "${TEAL}────────────────────────────────────${RESET}"; }
 

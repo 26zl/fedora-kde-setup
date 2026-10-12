@@ -4,6 +4,9 @@
 # dual-boot handling. Overrides go in setup.conf (see setup.conf.example).
 # Run as regular user — sudo is called where needed
 
+# takes no options: --help (or any argument) prints this header instead of running
+[ $# -eq 0 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; case $1 in -h | --help) exit 0 ;; *) exit 2 ;; esac; }
+
 set -e
 [ "$EUID" -ne 0 ] || {
     echo "run as a normal user, not root" >&2
@@ -20,6 +23,7 @@ hw_check_conf
 TEAL='\033[38;2;0;200;168m'
 RED='\033[38;2;170;28;28m'
 RESET='\033[0m'
+if [ ! -t 1 ] || [ -n "${NO_COLOR-}" ]; then TEAL='' RED='' RESET=''; fi
 
 ok()   { echo -e "  ${TEAL}✓${RESET} $1"; }
 info() { echo -e "  ${TEAL}→${RESET} $1"; }
@@ -143,8 +147,9 @@ ok "fish installed (used as kitty shell, not login shell)"
 
 # Pinned upstream releases, checked against these hashes before anything is installed
 dl=$(mktemp -d)
+trap 'rm -rf "$dl"' EXIT
 fetch() {  # url sha256 file
-    curl -fsSL "$1" -o "$3"
+    curl -fsSL --connect-timeout 20 --retry 3 "$1" -o "$3"
     echo "$2  $3" | sha256sum -c --quiet -
 }
 
@@ -156,7 +161,9 @@ if ! command -v lazygit &>/dev/null; then
 fi
 ok "lazygit $(lazygit --version | grep -oP 'version=\K[^,]+')"
 
-# ble.sh — bash syntax highlighting; .gitmodules uses a relative URL, so origin must exist
+# ble.sh — bash syntax highlighting, built with git and make, which the KDE image does
+# not ship; .gitmodules uses a relative URL, so origin must exist
+sudo dnf install -y git make
 if [[ ! -f ~/.local/share/blesh/ble.sh ]]; then
     git init -q "$dl/ble.sh"
     git -C "$dl/ble.sh" remote add origin https://github.com/akinomyoga/ble.sh.git
@@ -176,7 +183,6 @@ fetch https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/JetBrains
 tar -xf "$dl/JetBrainsMono.tar.xz" -C ~/.local/share/fonts/JetBrainsMono/
 fc-cache -fv -q
 ok "JetBrainsMono Nerd Font installed"
-rm -rf "$dl"
 
 section "Flatpak (gaming)"
 flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
@@ -209,6 +215,11 @@ section "SCX scheduler (gaming)"
 sudo systemctl enable --now scx_loader.service
 # sched_ext schedulers fail to load on kernels whose BTF came from pahole <= 1.30
 # (Fedora 7.1.x-7.2.6, fixed in 7.2.7); check CONFIG_PAHOLE_VERSION in /boot/config-*.
+# The loader attaches the scheduler a moment after the unit starts.
+for _ in $(seq 10); do
+    [[ "$(cat /sys/kernel/sched_ext/state 2>/dev/null)" == "enabled" ]] && break
+    sleep 1
+done
 if [[ "$(cat /sys/kernel/sched_ext/state 2>/dev/null)" == "enabled" ]]; then
     ok "sched_ext scheduler attached"
 else

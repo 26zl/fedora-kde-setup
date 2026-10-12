@@ -2,6 +2,9 @@
 # Deploy all system/ files to their live system paths. Hardware-specific files
 # follow scripts/lib/hw.sh and the overrides in setup.conf (see setup.conf.example).
 
+# takes no options: --help (or any argument) prints this header instead of running
+[ $# -eq 0 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; case $1 in -h | --help) exit 0 ;; *) exit 2 ;; esac; }
+
 set -e
 cd "$(dirname "$0")/.."
 
@@ -14,6 +17,7 @@ hw_check_conf
 TEAL='\033[38;2;0;200;168m'
 RED='\033[38;2;170;28;28m'
 RESET='\033[0m'
+if [ ! -t 1 ] || [ -n "${NO_COLOR-}" ]; then TEAL='' RED='' RESET=''; fi
 
 ok()      { echo -e "  ${TEAL}✓${RESET} $1"; }
 warn()    { echo -e "  ${RED}!${RESET} $1"; }
@@ -32,6 +36,14 @@ FORM_FACTOR=$(hw_form_factor)
 NVIDIA_BRANCH=$(hw_nvidia_driver)
 section "Hardware"
 ok "$(hw_summary)"
+
+section "Restore point"
+# /etc is in the root snapshot, /boot (kernel arguments) is not
+if snap=$(sudo snapper -c root create --description "before apply-system.sh" --cleanup-algorithm number --print-number 2>/dev/null); then
+    ok "snapper root snapshot $snap (sudo snapper -c root status $snap..0 lists what this run changed)"
+else
+    warn "no snapper root config yet: no restore point"
+fi
 
 section "NVIDIA"
 if [ -n "$NVIDIA_BRANCH" ]; then
@@ -76,12 +88,18 @@ ok "Kernel parameters set for a $FORM_FACTOR (takes effect on next boot)"
 
 section "SCX scheduler"
 sudo mkdir -p /etc/scx_loader
+scx_before=$(cat /etc/scx_loader/config.toml 2>/dev/null || true)
 if [ "$FORM_FACTOR" = laptop ]; then
     sudo cp system/scx_loader-laptop.toml /etc/scx_loader/config.toml
     ok "scx_loader-laptop.toml (scx_bpfland, Auto mode)"
 else
     sudo cp system/scx_loader.toml /etc/scx_loader/config.toml
     ok "scx_loader.toml (scx_bpfland, Gaming mode)"
+fi
+# scx_loader reads its config only when it starts
+if [ "$scx_before" != "$(cat /etc/scx_loader/config.toml)" ] && systemctl is-active -q scx_loader; then
+    sudo systemctl restart scx_loader
+    ok "scx_loader restarted on the new config"
 fi
 
 section "tuned"
@@ -106,6 +124,9 @@ ok "99-lamzu.rules, 99-disable-wakeup.rules, 99-dualsense.rules"
 section "Suspend / resume"
 sudo cp system/kwin-display-fix.sh /usr/lib/systemd/system-sleep/kwin-display-fix.sh
 sudo chmod +x /usr/lib/systemd/system-sleep/kwin-display-fix.sh
+# the hook's state file lives here; no package creates the directory
+sudo mkdir -p -m 0700 /var/lib/systemd/sleep
+sudo restorecon /var/lib/systemd/sleep
 sudo cp system/usb-autosuspend.service /etc/systemd/system/usb-autosuspend.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now usb-autosuspend.service
@@ -162,7 +183,7 @@ sudo mkdir -p /etc/systemd/system/user-runtime-dir@.service.d
 sudo cp system/user-runtime-dir-noquota.conf /etc/systemd/system/user-runtime-dir@.service.d/noquota.conf
 sudo systemctl daemon-reload
 # drop-in clears /dev/shm limit at each login; clear the current session now too
-sudo setquota -u "$(id -u)" 0 0 0 0 /dev/shm 2>/dev/null || true
+sudo setquota -u "${SUDO_UID:-$(id -u)}" 0 0 0 0 /dev/shm 2>/dev/null || true
 ok "usrquota dropped on /tmp (reboot); /dev/shm per-user limit cleared at each login"
 
 section "gamescope capabilities"
