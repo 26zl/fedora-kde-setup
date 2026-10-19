@@ -181,6 +181,7 @@ sudo dracut --force
 **Apply NVIDIA configs:**
 
 ```bash
+sudo mkdir -p /etc/environment.d
 sudo cp system/nvidia-wayland.conf /etc/environment.d/nvidia-wayland.conf
 sudo cp system/nvidia-performance.conf /etc/modprobe.d/nvidia-performance.conf
 ```
