@@ -12,8 +12,8 @@ rel=$(rpm -E %fedora)
 echo "==> Fedora $rel: adding repos"
 dnf -y -q install dnf5-plugins
 dnf -y -q install \
-    "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$rel.noarch.rpm" \
-    "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$rel.noarch.rpm"
+    "https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-$rel.noarch.rpm" \
+    "https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$rel.noarch.rpm"
 grep -hoP 'copr enable -y \K\S+' scripts/*.sh | while read -r c; do dnf -y -q copr enable "$c"; done
 grep -hoP -- '--from-repofile=\K\S+' scripts/*.sh |
     while read -r r; do dnf -y -q config-manager addrepo --from-repofile="$r"; done

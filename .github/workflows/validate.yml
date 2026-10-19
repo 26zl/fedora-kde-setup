@@ -66,6 +66,9 @@ jobs:
       - name: Run the hardware detection tests
         run: bash tests/hw-detect.sh
 
+      - name: Run the deploy steps on a fresh Fedora
+        run: bash tests/fresh-install.sh
+
       - name: Check every system/ file is deployed by apply-system.sh
         run: |
           missing=0

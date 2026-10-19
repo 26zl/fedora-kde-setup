@@ -54,9 +54,11 @@ printf '%%_install_langs %s\n' "$install_langs" | sudo tee /etc/rpm/macros.image
 ok "langpacks: $(echo "$langs" | xargs); install_langs: $install_langs"
 
 section "RPM Fusion"
+# RPM Fusion's own server: a URL install has no mirror fallback, and the mirrors.rpmfusion.org
+# redirector can hand out a mirror that no longer resolves
 sudo dnf install -y \
-    "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm" \
-    "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm"
+    "https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm" \
+    "https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm"
 sudo dnf group upgrade -y core
 ok "RPM Fusion free + nonfree installed"
 
@@ -231,13 +233,14 @@ sudo setcap cap_sys_nice+ep "$(command -v gamescope)"
 ok "Gamescope granted CAP_SYS_NICE (--rt works)"
 
 section "Firewall hardening"
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-service=mdns 2>/dev/null || true
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-service=ssh 2>/dev/null || true
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-service=samba-client 2>/dev/null || true
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-port=1025-65535/udp 2>/dev/null || true
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-port=1025-65535/tcp 2>/dev/null || true
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-service=kdeconnect 2>/dev/null || true
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --add-service=dhcpv6-client
+# no --zone: the default zone is FedoraWorkstation on the KDE Edition, public on an Everything ISO install
+sudo firewall-cmd --permanent --remove-service=mdns 2>/dev/null || true
+sudo firewall-cmd --permanent --remove-service=ssh 2>/dev/null || true
+sudo firewall-cmd --permanent --remove-service=samba-client 2>/dev/null || true
+sudo firewall-cmd --permanent --remove-port=1025-65535/udp 2>/dev/null || true
+sudo firewall-cmd --permanent --remove-port=1025-65535/tcp 2>/dev/null || true
+sudo firewall-cmd --permanent --remove-service=kdeconnect 2>/dev/null || true
+sudo firewall-cmd --permanent --add-service=dhcpv6-client
 sudo firewall-cmd --reload
 ok "Firewall hardened (dhcpv6-client only; ssh, samba-client, mdns, kdeconnect removed)"
 
@@ -355,15 +358,12 @@ else
 fi
 
 section "Writing user configs"
-mkdir -p ~/.config/kitty ~/.config/conky \
-         ~/.config/Kvantum ~/.local/share/color-schemes \
-         ~/scripts ~/Pictures ~/.config/fish/functions \
-         ~/.local/share/plasma/desktoptheme \
-         ~/.config/systemd/user ~/.config/fastfetch
+mkdir -p ~/scripts ~/.config/systemd/user
 
 # Deploy a repo config without silently discarding an existing file: an unchanged
 # target is left alone, and one that differs is kept as a numbered backup.
 install_config() {  # src dest
+    mkdir -p "$(dirname "$2")"
     if [ -d "$1" ]; then
         if [ -d "$2" ] && diff -rq "$1" "$2" >/dev/null 2>&1; then
             return

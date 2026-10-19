@@ -95,6 +95,7 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   └── verify-setup.sh         # Check the live system against the setup (after setup or an upgrade)
 ├── tests/
 │   ├── hw-detect.sh            # Detection and hwstat tests against fixture sysfs trees
+│   ├── fresh-install.sh        # CI: apply-system.sh and the README's copy steps on a fresh Fedora
 │   └── check-packages.sh       # CI: every package the scripts install resolves in the scoped repos
 ├── setup.conf.example          # Per-machine overrides; copy to setup.conf
 └── wallpaper/
@@ -144,8 +145,8 @@ Key settings: `installonly_limit=2` (max 2 kernels), `max_parallel_downloads=10`
 
 ```bash
 sudo dnf install -y \
-  "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm" \
-  "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm"
+  "https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm" \
+  "https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm"
 sudo dnf group upgrade -y core
 ```
 
@@ -181,6 +182,7 @@ sudo dracut --force
 **Apply NVIDIA configs:**
 
 ```bash
+sudo mkdir -p /etc/environment.d
 sudo cp system/nvidia-wayland.conf /etc/environment.d/nvidia-wayland.conf
 sudo cp system/nvidia-performance.conf /etc/modprobe.d/nvidia-performance.conf
 ```
@@ -318,16 +320,16 @@ sensors | grep -E 'Tctl|Package id'  # Verify: Tctl on AMD, Package id 0 on Inte
 
 ### 11. Firewall Hardening
 
-Default FedoraWorkstation zone has ports 1025-65535 open, plus the mdns, ssh and samba-client services. Harden to only what's needed:
+The KDE Edition's default zone, FedoraWorkstation, has ports 1025-65535 open, plus the mdns, ssh and samba-client services. An install from the Everything ISO defaults to `public` instead; without `--zone`, `firewall-cmd` changes whichever zone is the default. Harden to only what's needed:
 
 ```bash
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-port=1025-65535/udp
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-port=1025-65535/tcp
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-service=mdns
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-service=ssh
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-service=samba-client
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-service=kdeconnect
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --add-service=dhcpv6-client
+sudo firewall-cmd --permanent --remove-port=1025-65535/udp
+sudo firewall-cmd --permanent --remove-port=1025-65535/tcp
+sudo firewall-cmd --permanent --remove-service=mdns
+sudo firewall-cmd --permanent --remove-service=ssh
+sudo firewall-cmd --permanent --remove-service=samba-client
+sudo firewall-cmd --permanent --remove-service=kdeconnect
+sudo firewall-cmd --permanent --add-service=dhcpv6-client
 sudo firewall-cmd --reload
 firewall-cmd --list-services  # Verify: dhcpv6-client
 ```
@@ -590,6 +592,7 @@ Fish is configured as the shell for Kitty only (`shell /usr/bin/fish` in `kitty.
 
 ```bash
 sudo dnf install -y fish
+mkdir -p ~/.config/fish/functions
 cp configs/fish/config.fish ~/.config/fish/config.fish
 cp configs/fish/functions/ya.fish ~/.config/fish/functions/ya.fish
 ```
@@ -667,6 +670,7 @@ Set in KDE: right-click desktop → Configure Desktop → Wallpaper
 ### KDE Color Scheme
 
 ```bash
+mkdir -p ~/.local/share/color-schemes
 cp configs/kde/DarthVader.colors ~/.local/share/color-schemes/
 ```
 

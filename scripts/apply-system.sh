@@ -56,6 +56,7 @@ if [ -n "$NVIDIA_BRANCH" ]; then
         retire system/nvidia-wayland.conf /etc/environment.d/nvidia-wayland.conf
         ok "hybrid graphics: desktop stays on the integrated GPU (offload apps with switcherooctl launch)"
     else
+        sudo mkdir -p /etc/environment.d
         sudo cp system/nvidia-wayland.conf /etc/environment.d/nvidia-wayland.conf
         ok "nvidia-wayland.conf"
     fi
