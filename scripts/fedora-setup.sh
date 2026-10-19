@@ -54,9 +54,11 @@ printf '%%_install_langs %s\n' "$install_langs" | sudo tee /etc/rpm/macros.image
 ok "langpacks: $(echo "$langs" | xargs); install_langs: $install_langs"
 
 section "RPM Fusion"
+# RPM Fusion's own server: a URL install has no mirror fallback, and the mirrors.rpmfusion.org
+# redirector can hand out a mirror that no longer resolves
 sudo dnf install -y \
-    "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm" \
-    "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm"
+    "https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm" \
+    "https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm"
 sudo dnf group upgrade -y core
 ok "RPM Fusion free + nonfree installed"
 
