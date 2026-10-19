@@ -319,16 +319,16 @@ sensors | grep -E 'Tctl|Package id'  # Verify: Tctl on AMD, Package id 0 on Inte
 
 ### 11. Firewall Hardening
 
-Default FedoraWorkstation zone has ports 1025-65535 open, plus the mdns, ssh and samba-client services. Harden to only what's needed:
+The KDE Edition's default zone, FedoraWorkstation, has ports 1025-65535 open, plus the mdns, ssh and samba-client services. An install from the Everything ISO defaults to `public` instead; without `--zone`, `firewall-cmd` changes whichever zone is the default. Harden to only what's needed:
 
 ```bash
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-port=1025-65535/udp
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-port=1025-65535/tcp
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-service=mdns
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-service=ssh
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-service=samba-client
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-service=kdeconnect
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --add-service=dhcpv6-client
+sudo firewall-cmd --permanent --remove-port=1025-65535/udp
+sudo firewall-cmd --permanent --remove-port=1025-65535/tcp
+sudo firewall-cmd --permanent --remove-service=mdns
+sudo firewall-cmd --permanent --remove-service=ssh
+sudo firewall-cmd --permanent --remove-service=samba-client
+sudo firewall-cmd --permanent --remove-service=kdeconnect
+sudo firewall-cmd --permanent --add-service=dhcpv6-client
 sudo firewall-cmd --reload
 firewall-cmd --list-services  # Verify: dhcpv6-client
 ```

@@ -231,13 +231,14 @@ sudo setcap cap_sys_nice+ep "$(command -v gamescope)"
 ok "Gamescope granted CAP_SYS_NICE (--rt works)"
 
 section "Firewall hardening"
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-service=mdns 2>/dev/null || true
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-service=ssh 2>/dev/null || true
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-service=samba-client 2>/dev/null || true
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-port=1025-65535/udp 2>/dev/null || true
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-port=1025-65535/tcp 2>/dev/null || true
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --remove-service=kdeconnect 2>/dev/null || true
-sudo firewall-cmd --permanent --zone=FedoraWorkstation --add-service=dhcpv6-client
+# no --zone: the default zone is FedoraWorkstation on the KDE Edition, public on an Everything ISO install
+sudo firewall-cmd --permanent --remove-service=mdns 2>/dev/null || true
+sudo firewall-cmd --permanent --remove-service=ssh 2>/dev/null || true
+sudo firewall-cmd --permanent --remove-service=samba-client 2>/dev/null || true
+sudo firewall-cmd --permanent --remove-port=1025-65535/udp 2>/dev/null || true
+sudo firewall-cmd --permanent --remove-port=1025-65535/tcp 2>/dev/null || true
+sudo firewall-cmd --permanent --remove-service=kdeconnect 2>/dev/null || true
+sudo firewall-cmd --permanent --add-service=dhcpv6-client
 sudo firewall-cmd --reload
 ok "Firewall hardened (dhcpv6-client only; ssh, samba-client, mdns, kdeconnect removed)"
 
