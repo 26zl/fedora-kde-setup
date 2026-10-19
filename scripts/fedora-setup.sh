@@ -356,15 +356,12 @@ else
 fi
 
 section "Writing user configs"
-mkdir -p ~/.config/kitty ~/.config/conky \
-         ~/.config/Kvantum ~/.local/share/color-schemes \
-         ~/scripts ~/Pictures ~/.config/fish/functions \
-         ~/.local/share/plasma/desktoptheme \
-         ~/.config/systemd/user ~/.config/fastfetch
+mkdir -p ~/scripts ~/.config/systemd/user
 
 # Deploy a repo config without silently discarding an existing file: an unchanged
 # target is left alone, and one that differs is kept as a numbered backup.
 install_config() {  # src dest
+    mkdir -p "$(dirname "$2")"
     if [ -d "$1" ]; then
         if [ -d "$2" ] && diff -rq "$1" "$2" >/dev/null 2>&1; then
             return

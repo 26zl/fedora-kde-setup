@@ -95,6 +95,7 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   └── verify-setup.sh         # Check the live system against the setup (after setup or an upgrade)
 ├── tests/
 │   ├── hw-detect.sh            # Detection and hwstat tests against fixture sysfs trees
+│   ├── fresh-install.sh        # CI: apply-system.sh and the README's copy steps on a fresh Fedora
 │   └── check-packages.sh       # CI: every package the scripts install resolves in the scoped repos
 ├── setup.conf.example          # Per-machine overrides; copy to setup.conf
 └── wallpaper/
@@ -591,6 +592,7 @@ Fish is configured as the shell for Kitty only (`shell /usr/bin/fish` in `kitty.
 
 ```bash
 sudo dnf install -y fish
+mkdir -p ~/.config/fish/functions
 cp configs/fish/config.fish ~/.config/fish/config.fish
 cp configs/fish/functions/ya.fish ~/.config/fish/functions/ya.fish
 ```
@@ -668,6 +670,7 @@ Set in KDE: right-click desktop → Configure Desktop → Wallpaper
 ### KDE Color Scheme
 
 ```bash
+mkdir -p ~/.local/share/color-schemes
 cp configs/kde/DarthVader.colors ~/.local/share/color-schemes/
 ```
 
