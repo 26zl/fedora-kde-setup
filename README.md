@@ -141,7 +141,7 @@ sudo fwupdmgr get-updates
 sudo fwupdmgr update
 ```
 
-Do this before the NVIDIA driver, or with Secure Boot on run `sudo bash scripts/mok-reenroll.sh` after any UEFI/BIOS update: a BIOS flash clears the enrolled MOK key, and the signed NVIDIA modules stop loading. `fedora-setup.sh` only lists the available updates and leaves applying them to you.
+Do this before the NVIDIA driver, or with Secure Boot on run `sudo bash scripts/mok-reenroll.sh` after any UEFI/BIOS update: a BIOS flash can clear the enrolled MOK key, and the signed NVIDIA modules then stop loading. `fedora-setup.sh` only lists the available updates and leaves applying them to you.
 
 ### 2. DNF Configuration
 
