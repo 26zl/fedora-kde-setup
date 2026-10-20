@@ -38,6 +38,20 @@ section "DNF configuration"
 sudo cp system/dnf.conf /etc/dnf/dnf.conf
 ok "DNF configured (max 2 kernels, parallel downloads)"
 
+section "Firmware (fwupd)"
+sudo dnf install -y fwupd
+# list only: a UEFI update would apply at the same reboot as the MOK enrollment,
+# and a BIOS flash can clear the MOK list, which locks out the signed NVIDIA modules
+sudo fwupdmgr refresh --force >/dev/null </dev/null || warn "fwupd metadata refresh failed (offline?)"
+fw_updates=0 rc=0
+fwupdmgr get-updates --no-unreported-check --no-metadata-check --no-remote-check </dev/null || rc=$?
+# fwupdmgr exits 2 when there is nothing to do, 1 on a real failure
+case $rc in
+    0) fw_updates=1 ;;
+    2) ok "no firmware updates" ;;
+    *) warn "could not check for firmware updates (fwupdmgr exit $rc)" ;;
+esac
+
 section "Locale debloat"
 # keep a langpack for every locale in use (a regional LC_* locale too), not only English
 langs=$(locale | sed -n 's/^[A-Z_]*="\{0,1\}\([a-z]\{2,3\}\)_.*/\1/p' | sort -u)
@@ -423,6 +437,10 @@ if [ -n "$NVIDIA_BRANCH" ]; then
     echo ""
 fi
 warn "After reboot:"
+if [ "$fw_updates" = 1 ]; then
+    next "Firmware updates are available: sudo fwupdmgr update"
+    echo "     → after a UEFI/BIOS update with Secure Boot on: sudo ~/scripts/mok-reenroll.sh"
+fi
 next "KDE Settings → Colors → DarthVader → Apply"
 next "KDE Settings → Application Style → kvantum → Apply"
 next "KDE Settings → Fonts → Fixed width → JetBrainsMono Nerd Font"

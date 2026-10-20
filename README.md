@@ -133,6 +133,16 @@ sudo dnf autoremove && sudo dnf clean all
 sudo reboot
 ```
 
+Firmware (UEFI/BIOS, SSD, peripherals) through fwupd and the LVFS:
+
+```bash
+sudo fwupdmgr refresh --force
+sudo fwupdmgr get-updates
+sudo fwupdmgr update
+```
+
+Do this before the NVIDIA driver, or with Secure Boot on run `sudo bash scripts/mok-reenroll.sh` after any UEFI/BIOS update: a BIOS flash can clear the enrolled MOK key, and the signed NVIDIA modules then stop loading. `fedora-setup.sh` only lists the available updates and leaves applying them to you.
+
 ### 2. DNF Configuration
 
 ```bash
