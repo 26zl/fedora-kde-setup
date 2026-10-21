@@ -54,8 +54,10 @@ section "Model and engine"
 family=qwen
 [ "$(awk '/MemTotal/{print int($2/1048576)}' /proc/meminfo)" -lt 40 ] && family=coder
 # the card also drives the desktop: with Strata's default 700 MiB reserve the lock
-# screen could not allocate framebuffers on wake and froze
-"$STRATA_DIR/setup.sh" --yes --family "$family" --no-start --data-dir "$STRATA_DATA" --vram-reserve-mib 3072
+# screen could not allocate framebuffers on wake and froze. Despite its name, the
+# experimental speed projection is the package's refusal-direction vector
+"$STRATA_DIR/setup.sh" --yes --family "$family" --no-start --data-dir "$STRATA_DATA" \
+    --vram-reserve-mib 3072 --experimental-speed-projection on
 if [ "$family" = coder ]; then
     # Strata's own tip for 32 GB: 2 GiB more for the desktop at the same decode speed
     python3 -I - "$STRATA_DIR/strata-coder-iq1_m.json" <<'EOF'

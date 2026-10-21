@@ -894,6 +894,7 @@ Strata compiles its engine on Linux (its release assets are Windows-only), so th
 
 - **Model by RAM**: under 40 GiB the Coder (IQ1_M, half the experts — strong at code, answers Norwegian prompts mostly in English); otherwise the full model at the size Strata recommends.
 - **`--vram-reserve-mib 3072`**: the card also drives the desktop. With Strata's default 700 MiB reserve the lock screen could not allocate framebuffers on wake (`kscreenlocker_greet: eglSwapBuffers failed with 0x3003`, `nvidia-drm: Failed to allocate NVKMS memory for GEM object`) and froze. The bigger reserve costs about 20% decode speed (85 → 68 tokens/s on code).
+- **`--experimental-speed-projection on`**: despite the name, Strata's refusal-direction vector, projected out of layers 4–44 at run time, so the model answers instead of refusing. On the Coder it refuses 4 of 146 AdvBench and JailbreakBench prompts, against 143 without it; Strata measures a mean KL of 0.063 to the stock model and 0.2–0.4% less speed. A request with `"experimental_speed_projection": false` gets the stock model.
 - **Running it**: `~/Prosjekter/Strata/setup.sh` opens the chat on `http://127.0.0.1:8080`; closing its window stops the model. While it runs it holds ~20 GB of RAM and ~9 GB of VRAM — close it before gaming.
 
 ---
@@ -920,7 +921,7 @@ Retro emulation setup — installs ES-DE (Terra repo) and the standalone emulato
 
 ### `scripts/strata-setup.sh`
 
-Local LLM setup — CUDA toolkit from NVIDIA's repo, Strata pinned to a release, the model picked by RAM and a 3 GiB VRAM reserve for the desktop. See [Local LLM (Strata)](#local-llm-strata).
+Local LLM setup — CUDA toolkit from NVIDIA's repo, Strata pinned to a release, the model picked by RAM, a 3 GiB VRAM reserve for the desktop and Strata's refusal vector. See [Local LLM (Strata)](#local-llm-strata).
 
 ### `scripts/sysinfo.sh` — alias: `sysinfo`
 
