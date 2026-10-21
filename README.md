@@ -38,6 +38,7 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 ```text
 ├── configs/
 │   ├── conky/conky.conf        # Desktop system stats widget
+│   ├── fastfetch/config.jsonc  # fastfetch module layout
 │   ├── es-de/es_systems.xml    # ~/ES-DE/custom_systems/ — standalone emulator defaults
 │   ├── fish/
 │   │   ├── config.fish         # Fish shell config (aliases, zoxide, starship)
@@ -61,6 +62,9 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   ├── 99-tweaks.conf          # /etc/sysctl.d/ — performance tweaks
 │   ├── 99-disable-modules.conf # /etc/modprobe.d/ — blacklist unused protocols (attack surface)
 │   ├── dnf.conf                # /etc/dnf/ — DNF settings
+│   ├── journald-limits.conf    # /etc/systemd/journald.conf.d/ — journal capped at 1G
+│   ├── user-runtime-dir-noquota.conf # user-runtime-dir@.service drop-in — drop the /dev/shm quota at login
+│   ├── firefox-policies.json   # /etc/firefox/policies/ — telemetry, Studies, Pocket and sponsored content off
 │   ├── zram-generator.conf     # /etc/systemd/ — ZRAM as large as RAM, up to 8GB, zstd
 │   ├── tmp-mount-override.conf # /etc/systemd/system/tmp.mount.d/ — drop tmpfs usrquota
 │   ├── scx_loader.toml         # /etc/scx_loader/ — scx_bpfland Gaming mode on desktops (lavd until #3791 ships)
@@ -84,12 +88,13 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   ├── fedora-setup.sh         # Automated post-upgrade setup (run after the initial system upgrade + reboot)
 │   ├── apply-system.sh         # Deploy system/ files to their system paths
 │   ├── emulation-setup.sh      # ES-DE + standalone emulators (PS1/2/3, Wii)
-│   ├── strata-setup.sh         # Local LLM (Strata) on the NVIDIA card — opt-in, ~65 GB
+│   ├── strata-setup.sh         # Local LLM (Strata) on the NVIDIA card — opt-in, 85 GB+
 │   ├── setup-github.sh         # GitHub CLI login + git identity/defaults
 │   ├── rice-start.sh           # Restart Conky
 │   ├── sysinfo.sh              # System health overview in terminal
 │   ├── hwstat.sh               # CPU/GPU readings for Conky and sysinfo (AMD, Intel, NVIDIA)
 │   ├── deep-health.sh          # Full hardware audit — firmware, SMART, btrfs scrub, self-test
+│   ├── disk-cleanup.sh         # Trim snapper's timeline and clear package and container caches
 │   ├── mok-reenroll.sh         # Re-enroll the akmods MOK after a BIOS flash
 │   ├── fedora-upgrade.sh       # Upgrade to the next Fedora release (checks, snapshot, download)
 │   └── verify-setup.sh         # Check the live system against the setup (after setup or an upgrade)
@@ -98,6 +103,7 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   ├── fresh-install.sh        # CI: apply-system.sh and the README's copy steps on a fresh Fedora
 │   └── check-packages.sh       # CI: every package the scripts install resolves in the scoped repos
 ├── setup.conf.example          # Per-machine overrides; copy to setup.conf
+├── SECURITY.md                 # How to report a vulnerability
 └── wallpaper/
     └── wallpaper.jpg           # Darth Vader — dark, teal glow, red lightsaber (5120x2880)
 ```
@@ -884,13 +890,13 @@ Not shipped — provide your own:
 
 ## Local LLM (Strata)
 
-[Strata](https://github.com/Niko1221/Strata) runs Qwen3.8-Flash-Next on the NVIDIA card plus system RAM and serves an OpenAI- and Anthropic-compatible API on `127.0.0.1:8080`. Opt-in — about 65 GB of model files and a one-time engine compile:
+[Strata](https://github.com/Niko1221/Strata) runs Qwen3.8-Flash-Next on the NVIDIA card plus system RAM and serves an OpenAI- and Anthropic-compatible API on `127.0.0.1:8080`. Opt-in — about 85 GB of model files for the Coder (more for the full model) and a one-time engine compile:
 
 ```bash
 bash scripts/strata-setup.sh
 ```
 
-Strata compiles its engine on Linux (its release assets are Windows-only), so the script adds NVIDIA's CUDA repo for `cuda-toolkit-13-4`, with NVIDIA's own driver packages excluded as [RPM Fusion recommends](https://rpmfusion.org/Howto/CUDA): they replace RPM Fusion's driver or collide with its files, and the next driver update then fails. It clones Strata pinned to v0.1.40.1 into `~/Prosjekter/Strata` and puts the model files on `/mnt/data/Strata-data` — not under `/home`, which snapper snapshots. `STRATA_DIR` and `STRATA_DATA` override both paths.
+Strata compiles its engine on Linux (the pinned v0.1.40.1 has Windows-only release assets; 0.2 added Linux AppImages, not adopted yet), so the script adds NVIDIA's CUDA repo for `cuda-toolkit-13-4`, with NVIDIA's own driver packages excluded as [RPM Fusion recommends](https://rpmfusion.org/Howto/CUDA): they replace RPM Fusion's driver or collide with its files, and the next driver update then fails. It clones Strata pinned to v0.1.40.1 into `~/Prosjekter/Strata` and puts the model files on `/mnt/data/Strata-data` — not under `/home`, which snapper snapshots. `STRATA_DIR` and `STRATA_DATA` override both paths.
 
 - **Model by RAM**: under 40 GiB the Coder (IQ1_M, half the experts — strong at code, answers Norwegian prompts mostly in English); otherwise the full model at the size Strata recommends.
 - **`--vram-reserve-mib 3072`**: the card also drives the desktop. With Strata's default 700 MiB reserve the lock screen could not allocate framebuffers on wake (`kscreenlocker_greet: eglSwapBuffers failed with 0x3003`, `nvidia-drm: Failed to allocate NVKMS memory for GEM object`) and froze. The bigger reserve costs about 20% decode speed (85 → 68 tokens/s on code).
@@ -917,6 +923,10 @@ Takes a snapper snapshot of `/` (see [Undoing Changes](#undoing-changes)), then 
 ### `scripts/lib/hw.sh` and `setup.conf`
 
 `hw.sh` holds the detection: GPUs by PCI vendor and device ID (which also picks the NVIDIA driver branch), desktop or laptop from the SMBIOS chassis type or a system battery, Windows from the UEFI boot list. `setup.conf` (copied from `setup.conf.example`) overrides it per machine: `FORM_FACTOR`, `NVIDIA_DRIVER` and the opt-in `AUDIO_TRIM`. `tests/hw-detect.sh` runs the detection against fixture trees for each kind of machine.
+
+### `scripts/setup-github.sh`
+
+GitHub CLI login and a git identity derived from it: installs `gh`, logs in through the browser, wires git to gh's credential helper, then sets `user.name` and `user.email` from the GitHub account (the noreply address when the account email is hidden), `init.defaultBranch main`, `pull.rebase false` and `push.autoSetupRemote`. Run without sudo; gh keeps its credentials per user.
 
 ### `scripts/emulation-setup.sh`
 
