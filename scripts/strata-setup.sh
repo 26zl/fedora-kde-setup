@@ -59,16 +59,25 @@ family=qwen
 "$STRATA_DIR/setup.sh" --yes --family "$family" --no-start --data-dir "$STRATA_DATA" \
     --vram-reserve-mib 3072 --experimental-speed-projection on
 if [ "$family" = coder ]; then
-    # Strata's own tip for 32 GB: 2 GiB more for the desktop at the same decode speed
-    python3 -I - "$STRATA_DIR/strata-coder-iq1_m.json" <<'EOF'
+    # Strata's own tip for 32 GB: 2 GiB more for the desktop at the same decode speed. The model
+    # unloads after 10 idle minutes (closing the browser tab does not stop the server) and the chat
+    # gets a DuckDuckGo search and page-fetch tool from an MCP server when uvx is installed.
+    # fit_max_tokens shortens an agent's max_tokens to the room left instead of refusing the request
+    command -v uvx >/dev/null || warn "uvx not found: the chat gets no web search (install uv)"
+    python3 -I - "$STRATA_DIR/strata-coder-iq1_m.json" "$(command -v uvx || true)" <<'EOF'
 import json, sys
-cfg = json.load(open(sys.argv[1]))
+path, uvx = sys.argv[1], sys.argv[2]
+cfg = json.load(open(path))
 cfg.setdefault("env", {})["STRATA_RESIDENT_HEADROOM_GIB"] = "6"
-json.dump(cfg, open(sys.argv[1], "w"), indent=1)
+cfg["idle_unload_s"] = 600
+cfg["fit_max_tokens"] = True
+if uvx:
+    cfg["mcp_servers"] = {"search": {"command": "uvx", "args": ["duckduckgo-mcp-server@0.7.0"]}}
+json.dump(cfg, open(path, "w"), indent=1)
 EOF
 fi
 ok "Strata installed ($family), model files in $STRATA_DATA"
 
 section "Strata setup complete"
-ok "Start: $STRATA_DIR/setup.sh — chat on http://127.0.0.1:8080, closing its window stops it"
-warn "Running, it holds ~20 GB of RAM and ~9 GB of VRAM: close it before gaming or leaving the PC"
+ok "Start: $STRATA_DIR/run-<model>.sh — chat on http://127.0.0.1:8080; Ctrl+C in that terminal stops it, closing the tab does not"
+warn "Loaded, it holds ~20 GB of RAM and ~9 GB of VRAM until 10 minutes after the last request: stop it before gaming"
