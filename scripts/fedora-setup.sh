@@ -409,8 +409,8 @@ install_config configs/fish/functions/ya.fish ~/.config/fish/functions/ya.fish
 install_config wallpaper/wallpaper.jpg ~/Pictures/wallpaper.jpg
 ok "User configs written (existing files that differ kept as numbered backups)"
 
-cp scripts/rice-start.sh scripts/sysinfo.sh scripts/hwstat.sh scripts/deep-health.sh scripts/mok-reenroll.sh ~/scripts/
-chmod +x ~/scripts/{rice-start,sysinfo,hwstat,deep-health,mok-reenroll}.sh
+cp scripts/rice-start.sh scripts/sysinfo.sh scripts/hwstat.sh scripts/deep-health.sh scripts/mok-reenroll.sh scripts/disk-cleanup.sh ~/scripts/
+chmod +x ~/scripts/{rice-start,sysinfo,hwstat,deep-health,mok-reenroll,disk-cleanup}.sh
 ok "Scripts installed to ~/scripts/"
 
 # ble.sh requires --noattach first and ble-attach last; configs/bashrc goes in between

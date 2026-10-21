@@ -939,7 +939,7 @@ Firmware time far above normal (25 s or more on a desktop board) can mean the em
 
 ### `scripts/disk-cleanup.sh`
 
-Space back from what grows unnoticed: snapper's snapshot timeline (listed first, trimmed only after a y/N), unused flatpak runtimes, PackageKit's and dnf's package caches, docker's unused images and build cache (volumes stay) and the calling user's unused podman images. Run with sudo; it waits for btrfs to release the deleted snapshots, which takes minutes after a big trim. Its first run on 2026-10-21 took `/` from 23 GB free to 260 GB — the snapshots held the difference.
+Space back from what grows unnoticed: snapper's snapshot timeline (listed first, trimmed only after a y/N), unused flatpak runtimes, PackageKit's and dnf's package caches, docker's unused images and build cache (volumes stay) and the calling user's unused podman images. Installed to `~/scripts/` by the setup; run with sudo. It waits for btrfs to release the deleted snapshots, which takes minutes after a big trim. Its first run on 2026-10-21 took `/` from 23 GB free to 260 GB — the snapshots held the difference.
 
 ### `scripts/mok-reenroll.sh`
 
