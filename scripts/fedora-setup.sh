@@ -343,6 +343,13 @@ if [ "$(findmnt -no FSTYPE /)" = btrfs ]; then
     # /home changes constantly; its timeline snapshots are what fill the disk, so
     # keep only manual and number-cleanup snapshots there and let / carry the timeline
     sudo snapper -c home set-config TIMELINE_CREATE=no || warn "home timeline not disabled"
+    # snapper's defaults keep 10 hourly, daily, monthly and yearly snapshots, and turning the home
+    # timeline off does not delete the ones already made: on 2026-10-21 snapshots pinned 280 GB of
+    # deleted data on a 412 GB root whose live data was 104 GB. scripts/disk-cleanup.sh trims a full disk
+    sudo snapper -c root set-config TIMELINE_LIMIT_HOURLY=5 TIMELINE_LIMIT_DAILY=7 TIMELINE_LIMIT_WEEKLY=2 \
+        TIMELINE_LIMIT_MONTHLY=1 TIMELINE_LIMIT_YEARLY=0 || warn "root timeline limits not set"
+    sudo snapper -c home set-config TIMELINE_LIMIT_HOURLY=0 TIMELINE_LIMIT_DAILY=0 TIMELINE_LIMIT_WEEKLY=0 \
+        TIMELINE_LIMIT_MONTHLY=0 TIMELINE_LIMIT_YEARLY=0 || warn "home timeline limits not set"
     # number cleanup needs a btrfs qgroup to weigh the space snapshots pin; without
     # one the default limits still let snapshots fill the filesystem
     sudo snapper -c root setup-quota || warn "root quota not set up"
@@ -354,7 +361,7 @@ if [ "$(findmnt -no FSTYPE /)" = btrfs ]; then
         sudo snapper -c home create --description "Initial home snapshot" --cleanup-algorithm number || warn "home snapshot failed"
     fi
     sudo systemctl enable --now snapper-timeline.timer snapper-cleanup.timer
-    ok "Snapper: root + home snapshots, / timeline + quota, /home timeline off"
+    ok "Snapper: root + home snapshots, / timeline (5 hourly, 7 daily, 2 weekly, 1 monthly) + quota, /home timeline off"
 else
     warn "root filesystem is not btrfs — Snapper skipped"
 fi
