@@ -89,6 +89,7 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   ├── apply-system.sh         # Deploy system/ files to their system paths
 │   ├── emulation-setup.sh      # ES-DE + standalone emulators (PS1/2/3, Wii)
 │   ├── strata-setup.sh         # Local LLM (Strata) on the NVIDIA card — opt-in, 85 GB+
+│   ├── ollama-setup.sh         # Local LLM (Ollama) + Alpaca chat GUI — opt-in, ~9 GB
 │   ├── setup-github.sh         # GitHub CLI login + git identity/defaults
 │   ├── rice-start.sh           # Restart Conky
 │   ├── sysinfo.sh              # System health overview in terminal
@@ -908,6 +909,21 @@ Strata compiles its engine on Linux (the pinned v0.1.40.1 has Windows-only relea
 
 ---
 
+## Local LLM (Ollama)
+
+[Ollama](https://ollama.com) serves `gemma-4-12B-it-uncensored-heretic` (an uncensored community build of Gemma, from Hugging Face) on `127.0.0.1:11434`, with [Alpaca](https://flathub.org/apps/com.jeffser.Alpaca) as the chat GUI. Opt-in — about 9 GB:
+
+```bash
+bash scripts/ollama-setup.sh
+```
+
+- **Upstream build**: Fedora's `ollama` links ROCm and pulls ~4 GiB of AMD libraries that are useless next to an NVIDIA card, so the script installs the CUDA build from Ollama's GitHub release, pinned by version and SHA-256. Re-run it after a version bump.
+- **Hardened unit**: a drop-in applies the directives the nixpkgs module uses (`systemd-analyze security` 9.2 → 2.2) — it resets the `$PATH` the installer bakes into the unit and allows only the accelerator devices.
+- **VRAM cap**: the card also drives the desktop, and a full load leaves under 1 GB free, which freezes the lock screen on wake (the same failure as Strata's, above). `OLLAMA_GPU_OVERHEAD` sets a 3 GiB floor, but only a baked `num_gpu` holds the headroom, so the script sweeps GPU layer counts and bakes the largest that still leaves about 3 GB free at `num_ctx 8192`. Every Ollama version fits the layers differently, which is why a re-run re-tunes.
+- **Running it**: `ollama run gemma4-12b-heretic`, or pick the model in Alpaca. In Alpaca, add an Ollama instance at `http://127.0.0.1:11434` and leave **Override Parameters** off — on, it sends its own `num_ctx` and overrides the baked cap that holds the VRAM margin.
+
+---
+
 ## Scripts
 
 Apart from `hwstat.sh`, which takes the reading to print, the scripts take no options: `--help`, or any other argument, prints the script's header and exits without changing anything. Output is plain text when piped or with `NO_COLOR` set.
@@ -935,6 +951,10 @@ Retro emulation setup — installs ES-DE (Terra repo) and the standalone emulato
 ### `scripts/strata-setup.sh`
 
 Local LLM setup — CUDA toolkit from NVIDIA's repo, Strata pinned to a release, the model picked by RAM, a 3 GiB VRAM reserve for the desktop, Strata's refusal vector, idle unload and DuckDuckGo web search. See [Local LLM (Strata)](#local-llm-strata).
+
+### `scripts/ollama-setup.sh`
+
+Local LLM via Ollama — the upstream CUDA build with a hardened unit, the uncensored Gemma model tuned to leave the desktop about 3 GB of VRAM, and Alpaca as the GUI. Opt-in; re-run to update Ollama and re-tune. See [Local LLM (Ollama)](#local-llm-ollama).
 
 ### `scripts/sysinfo.sh` — alias: `sysinfo`
 
