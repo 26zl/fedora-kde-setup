@@ -377,6 +377,8 @@ sudo dnf install -y snapper btrfs-assistant
 sudo snapper -c root create-config /
 sudo snapper -c home create-config /home
 sudo snapper -c home set-config TIMELINE_CREATE=no
+sudo snapper -c root set-config TIMELINE_LIMIT_HOURLY=5 TIMELINE_LIMIT_DAILY=7 TIMELINE_LIMIT_WEEKLY=2 TIMELINE_LIMIT_MONTHLY=1 TIMELINE_LIMIT_YEARLY=0
+sudo snapper -c home set-config TIMELINE_LIMIT_HOURLY=0 TIMELINE_LIMIT_DAILY=0 TIMELINE_LIMIT_WEEKLY=0 TIMELINE_LIMIT_MONTHLY=0 TIMELINE_LIMIT_YEARLY=0
 sudo snapper -c root setup-quota
 sudo snapper -c home setup-quota
 sudo snapper -c root create --description "Initial clean setup" --cleanup-algorithm number
@@ -386,7 +388,7 @@ sudo systemctl enable --now snapper-timeline.timer snapper-cleanup.timer
 
 > Note: Fedora often pre-configures snapper. If `create-config` returns "subvolume already covered", skip it and go straight to creating a snapshot.
 
-`/home` changes constantly, so its hourly timeline snapshots are what fill the disk; it keeps only manual and number-cleanup snapshots, and `/` carries the timeline. The number cleanup needs a btrfs qgroup to weigh how much space snapshots pin, which `setup-quota` creates.
+`/home` changes constantly, so its hourly timeline snapshots are what fill the disk; it keeps only manual and number-cleanup snapshots, and `/` carries the timeline. The number cleanup needs a btrfs qgroup to weigh how much space snapshots pin, which `setup-quota` creates. Snapper's defaults keep 10 hourly, 10 daily, 10 monthly and 10 yearly timeline snapshots, and `TIMELINE_CREATE=no` does not delete the ones already made: on 2026-10-21 snapshots pinned 280 GB of deleted data on a 412 GB root whose live data was 104 GB, most of it in home snapshots from before the timeline was turned off. `/` therefore keeps 5 hourly, 7 daily, 2 weekly and 1 monthly, `/home` keeps none, and `scripts/disk-cleanup.sh` applies the limits and removes the rest.
 
 **BTRFS Assistant** (GUI) is available in the app menu — shows all snapshots and allows one-click restore.
 
@@ -933,6 +935,10 @@ One reading per call — `cpu-temp`, `gpu-name`, `gpu-temp`, `gpu-load`, `gpu-vr
 Full hardware audit: BIOS version and POST time, Secure Boot and MOK state, machine check counters, per-DIMM memory speed, temperatures, NVMe SMART plus a short self-test, btrfs error counters and scrub, NTFS state, GPU, failed units. `sysinfo.sh` is the glance; this is the check after a BIOS flash or when boot feels wrong. Takes around six minutes — the scrub and the self-test dominate. Sections that do not apply (no NVMe, no btrfs root, no NVIDIA GPU) are skipped.
 
 Firmware time far above normal (25 s or more on a desktop board) can mean the embedded controller is wedged. A reboot and Load Optimized Defaults do not clear it; only a full standby power drain does — PSU switch off, hold the case power button 30 seconds.
+
+### `scripts/disk-cleanup.sh`
+
+Space back from what grows unnoticed: snapper's snapshot timeline (listed first, trimmed only after a y/N), unused flatpak runtimes, PackageKit's and dnf's package caches, docker's unused images and build cache (volumes stay) and the calling user's unused podman images. Run with sudo; it waits for btrfs to release the deleted snapshots, which takes minutes after a big trim. Its first run on 2026-10-21 took `/` from 23 GB free to 260 GB — the snapshots held the difference.
 
 ### `scripts/mok-reenroll.sh`
 
