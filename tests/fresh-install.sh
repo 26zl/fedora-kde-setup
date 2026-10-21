@@ -39,8 +39,8 @@ HW_ROOT=$(mktemp -d)
 export PATH="$stub:$PATH" NO_COLOR=1 HW_ROOT
 
 case $2 in
-    desktop) FORM_FACTOR=desktop NVIDIA_DRIVER=current bash scripts/apply-system.sh ;;
-    laptop) FORM_FACTOR=laptop NVIDIA_DRIVER=none bash scripts/apply-system.sh ;;
+    desktop) FORM_FACTOR=desktop NVIDIA_DRIVER=current bash scripts/apply-system.sh --yes ;;
+    laptop) FORM_FACTOR=laptop NVIDIA_DRIVER=none bash scripts/apply-system.sh --yes ;;
     readme)
         failed=0 prev=""
         while IFS=$'\t' read -r block cmd; do

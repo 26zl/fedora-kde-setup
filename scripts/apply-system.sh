@@ -1,9 +1,18 @@
 #!/bin/bash
 # Deploy all system/ files to their live system paths. Hardware-specific files
 # follow scripts/lib/hw.sh and the overrides in setup.conf (see setup.conf.example).
+# Prints what it will change and asks once; --yes skips that (required when stdin
+# is not a terminal; fedora-setup.sh and the CI container pass it)
 
-# takes no options: --help (or any argument) prints this header instead of running
-[ $# -eq 0 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; case $1 in -h | --help) exit 0 ;; *) exit 2 ;; esac; }
+# --yes skips the confirmation; --help (or any other argument) prints this header instead of running
+YES=0
+[ $# -le 1 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 2; }
+case ${1-} in
+    "") ;;
+    --yes) YES=1 ;;
+    -h | --help) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    *) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 2 ;;
+esac
 
 set -e
 cd "$(dirname "$0")/.."
@@ -22,6 +31,13 @@ if [ ! -t 1 ] || [ -n "${NO_COLOR-}" ]; then TEAL='' RED='' RESET=''; fi
 ok()      { echo -e "  ${TEAL}✓${RESET} $1"; }
 warn()    { echo -e "  ${RED}!${RESET} $1"; }
 section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; }
+confirm() {
+    [ "$YES" -eq 1 ] && return 0
+    [ -t 0 ] || { echo "  not a terminal: pass --yes to run without the confirmation" >&2; exit 1; }
+    local reply
+    read -rp "  Continue? [y/N] " reply
+    [[ $reply == [yY]* ]] || { echo "  stopped, nothing changed"; exit 1; }
+}
 
 # Remove a file an earlier run deployed once it no longer fits the hardware, but
 # only while it still matches the repo copy — an edited file is the owner's.
@@ -34,8 +50,19 @@ retire() {  # repo-file live-path
 
 FORM_FACTOR=$(hw_form_factor)
 NVIDIA_BRANCH=$(hw_nvidia_driver)
+KERNEL_ARGS="nowatchdog audit=1 audit_backlog_limit=8192 skew_tick=1 preempt=full"
+# desktops trade a little idle power for cache locality; laptops keep power-efficient workqueues
+[ "$FORM_FACTOR" = desktop ] && KERNEL_ARGS="$KERNEL_ARGS workqueue.power_efficient=false"
 section "Hardware"
 ok "$(hw_summary)"
+
+section "Plan"
+echo "  This run will, with sudo:"
+echo "   - take a snapper snapshot of / first (the restore point)"
+echo "   - copy every system/ file to its system path and reload sysctl, udev, tmpfiles and systemd"
+echo "   - set the kernel arguments on every installed kernel: $KERNEL_ARGS"
+echo "   - restart journald, and scx_loader and systemd-resolved only when their config changed"
+confirm
 
 section "Restore point"
 # /etc is in the root snapshot, /boot (kernel arguments) is not
@@ -80,9 +107,6 @@ sudo systemd-tmpfiles --create /etc/tmpfiles.d/hugepages.conf
 ok "99-tweaks.conf, 99-disable-modules.conf, dnf.conf, zram-generator.conf, hugepages.conf"
 
 section "Kernel parameters"
-KERNEL_ARGS="nowatchdog audit=1 audit_backlog_limit=8192 skew_tick=1 preempt=full"
-# desktops trade a little idle power for cache locality; laptops keep power-efficient workqueues
-[ "$FORM_FACTOR" = desktop ] && KERNEL_ARGS="$KERNEL_ARGS workqueue.power_efficient=false"
 sudo grubby --update-kernel=ALL --remove-args="nowatchdog audit=0 audit=1 audit_backlog_limit skew_tick=1 workqueue.power_efficient=false preempt=full" 2>/dev/null || true
 sudo grubby --update-kernel=ALL --args="$KERNEL_ARGS"
 ok "Kernel parameters set for a $FORM_FACTOR (takes effect on next boot)"

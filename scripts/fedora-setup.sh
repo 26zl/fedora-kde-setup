@@ -2,16 +2,25 @@
 # Fedora 44 KDE post-install setup. Detects the hardware (scripts/lib/hw.sh) and
 # adapts to it: GPU drivers for NVIDIA, AMD or Intel, desktop or laptop tuning,
 # dual-boot handling. Overrides go in setup.conf (see setup.conf.example).
-# Run as regular user — sudo is called where needed
+# Run as regular user — sudo is called where needed. Prints what it will change and asks
+# once; --yes skips that (required when stdin is not a terminal)
 
-# takes no options: --help (or any argument) prints this header instead of running
-[ $# -eq 0 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; case $1 in -h | --help) exit 0 ;; *) exit 2 ;; esac; }
+# --yes skips the confirmation; --help (or any other argument) prints this header instead of running
+YES=0
+[ $# -le 1 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 2; }
+case ${1-} in
+    "") ;;
+    --yes) YES=1 ;;
+    -h | --help) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    *) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 2 ;;
+esac
 
 set -e
 [ "$EUID" -ne 0 ] || {
     echo "run as a normal user, not root" >&2
     exit 1
 }
+[ -f /etc/fedora-release ] || { echo "this setup targets Fedora KDE; no /etc/fedora-release here" >&2; exit 1; }
 cd "$(dirname "$0")/.."
 
 # shellcheck source=scripts/lib/hw.sh
@@ -29,10 +38,28 @@ ok()   { echo -e "  ${TEAL}✓${RESET} $1"; }
 info() { echo -e "  ${TEAL}→${RESET} $1"; }
 warn() { echo -e "  ${RED}!${RESET} $1"; }
 section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; }
+confirm() {
+    [ "$YES" -eq 1 ] && return 0
+    [ -t 0 ] || { echo "  not a terminal: pass --yes to run without the confirmation" >&2; exit 1; }
+    local reply
+    read -rp "  Continue? [y/N] " reply
+    [[ $reply == [yY]* ]] || { echo "  stopped, nothing changed"; exit 1; }
+}
 
 section "Hardware"
 NVIDIA_BRANCH=$(hw_nvidia_driver)
 ok "$(hw_summary)"
+
+section "Plan"
+echo "  This run will, with sudo where needed:"
+echo "   - add RPM Fusion, three scoped COPRs and Terra, and install the gaming, terminal and Flatpak tools"
+[ -n "$NVIDIA_BRANCH" ] && echo "   - install the NVIDIA driver ($NVIDIA_BRANCH branch)"
+echo "   - set up snapper snapshots on a btrfs root, then deploy the system/ files through apply-system.sh"
+echo "     (kernel arguments, sysctl, modprobe, udev, systemd units and drop-ins)"
+echo "   - leave only dhcpv6-client in the firewall zone, remove kde-connect, disable cups, abrt and gssproxy, enable auditd"
+echo "   - set the RTC to UTC$(hw_has_windows && echo ' and make GRUB remember the last-booted OS')"
+echo "   - write the KDE, kitty, fish, starship and conky configs (existing files kept as numbered backups) and edit ~/.bashrc"
+confirm
 
 section "DNF configuration"
 sudo cp system/dnf.conf /etc/dnf/dnf.conf
@@ -42,7 +69,7 @@ section "Firmware (fwupd)"
 sudo dnf install -y fwupd
 # list only: a UEFI update would apply at the same reboot as the MOK enrollment,
 # and a BIOS flash can clear the MOK list, which locks out the signed NVIDIA modules
-sudo fwupdmgr refresh --force >/dev/null </dev/null || warn "fwupd metadata refresh failed (offline?)"
+sudo timeout 120 fwupdmgr refresh --force >/dev/null </dev/null || warn "fwupd metadata refresh failed (offline?)"
 fw_updates=0 rc=0
 fwupdmgr get-updates --no-unreported-check --no-metadata-check --no-remote-check </dev/null || rc=$?
 # fwupdmgr exits 2 when there is nothing to do, 1 on a real failure
@@ -223,8 +250,46 @@ sudo systemctl enable --now tuned
 sudo systemctl enable --now tuned-ppd
 ok "tuned + tuned-ppd enabled (profile is set by apply-system.sh)"
 
+section "Snapper (BTRFS snapshots)"
+# before apply-system.sh, so its "before apply-system.sh" snapshot has a config to write to
+# and the restore point exists from the first run
+if [ "$(findmnt -no FSTYPE /)" = btrfs ]; then
+    sudo dnf install -y snapper btrfs-assistant
+    # guards need sudo — a plain user can't see root's snapper configs
+    if ! sudo snapper list-configs | grep -q "^root"; then
+        sudo snapper -c root create-config / || warn "root config not created (subvolume already covered?)"
+    fi
+    if ! sudo snapper list-configs | grep -q "^home"; then
+        sudo snapper -c home create-config /home || warn "home config not created (subvolume already covered?)"
+    fi
+    # /home changes constantly; its timeline snapshots are what fill the disk, so
+    # keep only manual and number-cleanup snapshots there and let / carry the timeline
+    sudo snapper -c home set-config TIMELINE_CREATE=no || warn "home timeline not disabled"
+    # snapper's defaults keep 10 hourly, daily, monthly and yearly snapshots, and turning the home
+    # timeline off does not delete the ones already made: on 2026-10-21 snapshots pinned 280 GB of
+    # deleted data on a 412 GB root whose live data was 104 GB. scripts/disk-cleanup.sh trims a full disk
+    sudo snapper -c root set-config TIMELINE_LIMIT_HOURLY=5 TIMELINE_LIMIT_DAILY=7 TIMELINE_LIMIT_WEEKLY=2 \
+        TIMELINE_LIMIT_MONTHLY=1 TIMELINE_LIMIT_YEARLY=0 || warn "root timeline limits not set"
+    sudo snapper -c home set-config TIMELINE_LIMIT_HOURLY=0 TIMELINE_LIMIT_DAILY=0 TIMELINE_LIMIT_WEEKLY=0 \
+        TIMELINE_LIMIT_MONTHLY=0 TIMELINE_LIMIT_YEARLY=0 || warn "home timeline limits not set"
+    # number cleanup needs a btrfs qgroup to weigh the space snapshots pin; without
+    # one the default limits still let snapshots fill the filesystem
+    sudo snapper -c root setup-quota || warn "root quota not set up"
+    sudo snapper -c home setup-quota || warn "home quota not set up"
+    if ! sudo snapper -c root list 2>/dev/null | grep -q "Initial clean setup"; then
+        sudo snapper -c root create --description "Initial clean setup" --cleanup-algorithm number || warn "root snapshot failed"
+    fi
+    if ! sudo snapper -c home list 2>/dev/null | grep -q "Initial home snapshot"; then
+        sudo snapper -c home create --description "Initial home snapshot" --cleanup-algorithm number || warn "home snapshot failed"
+    fi
+    sudo systemctl enable --now snapper-timeline.timer snapper-cleanup.timer
+    ok "Snapper: root + home snapshots, / timeline (5 hourly, 7 daily, 2 weekly, 1 monthly) + quota, /home timeline off"
+else
+    warn "root filesystem is not btrfs — Snapper skipped"
+fi
+
 section "System configs (scripts/apply-system.sh)"
-bash scripts/apply-system.sh
+bash scripts/apply-system.sh --yes
 ok "System files deployed via apply-system.sh"
 
 section "SCX scheduler (gaming)"
@@ -264,6 +329,7 @@ if hw_has_windows; then
     # GRUB re-picks the last-booted OS after a Windows hibernate wake; GRUB_SAVEDEFAULT requires GRUB_DEFAULT=saved
     grub_changed=0
     if ! grep -q '^GRUB_DEFAULT=saved' /etc/default/grub; then
+        sudo cp -n /etc/default/grub /etc/default/grub.orig  # the untouched file, kept once
         if grep -q '^GRUB_DEFAULT=' /etc/default/grub; then
             sudo sed -i 's/^GRUB_DEFAULT=.*/GRUB_DEFAULT=saved/' /etc/default/grub
         else
@@ -272,6 +338,7 @@ if hw_has_windows; then
         grub_changed=1
     fi
     if ! grep -q '^GRUB_SAVEDEFAULT=true' /etc/default/grub; then
+        sudo cp -n /etc/default/grub /etc/default/grub.orig
         echo 'GRUB_SAVEDEFAULT=true' | sudo tee -a /etc/default/grub >/dev/null
         grub_changed=1
     fi
@@ -330,42 +397,6 @@ kwriteconfig6 --file kscreenlockerrc \
   --key "Image" "file://${HOME}/Pictures/wallpaper.jpg"
 ok "Lock screen wallpaper set"
 
-section "Snapper (BTRFS snapshots)"
-if [ "$(findmnt -no FSTYPE /)" = btrfs ]; then
-    sudo dnf install -y snapper btrfs-assistant
-    # guards need sudo — a plain user can't see root's snapper configs
-    if ! sudo snapper list-configs | grep -q "^root"; then
-        sudo snapper -c root create-config / || warn "root config not created (subvolume already covered?)"
-    fi
-    if ! sudo snapper list-configs | grep -q "^home"; then
-        sudo snapper -c home create-config /home || warn "home config not created (subvolume already covered?)"
-    fi
-    # /home changes constantly; its timeline snapshots are what fill the disk, so
-    # keep only manual and number-cleanup snapshots there and let / carry the timeline
-    sudo snapper -c home set-config TIMELINE_CREATE=no || warn "home timeline not disabled"
-    # snapper's defaults keep 10 hourly, daily, monthly and yearly snapshots, and turning the home
-    # timeline off does not delete the ones already made: on 2026-10-21 snapshots pinned 280 GB of
-    # deleted data on a 412 GB root whose live data was 104 GB. scripts/disk-cleanup.sh trims a full disk
-    sudo snapper -c root set-config TIMELINE_LIMIT_HOURLY=5 TIMELINE_LIMIT_DAILY=7 TIMELINE_LIMIT_WEEKLY=2 \
-        TIMELINE_LIMIT_MONTHLY=1 TIMELINE_LIMIT_YEARLY=0 || warn "root timeline limits not set"
-    sudo snapper -c home set-config TIMELINE_LIMIT_HOURLY=0 TIMELINE_LIMIT_DAILY=0 TIMELINE_LIMIT_WEEKLY=0 \
-        TIMELINE_LIMIT_MONTHLY=0 TIMELINE_LIMIT_YEARLY=0 || warn "home timeline limits not set"
-    # number cleanup needs a btrfs qgroup to weigh the space snapshots pin; without
-    # one the default limits still let snapshots fill the filesystem
-    sudo snapper -c root setup-quota || warn "root quota not set up"
-    sudo snapper -c home setup-quota || warn "home quota not set up"
-    if ! sudo snapper -c root list 2>/dev/null | grep -q "Initial clean setup"; then
-        sudo snapper -c root create --description "Initial clean setup" --cleanup-algorithm number || warn "root snapshot failed"
-    fi
-    if ! sudo snapper -c home list 2>/dev/null | grep -q "Initial home snapshot"; then
-        sudo snapper -c home create --description "Initial home snapshot" --cleanup-algorithm number || warn "home snapshot failed"
-    fi
-    sudo systemctl enable --now snapper-timeline.timer snapper-cleanup.timer
-    ok "Snapper: root + home snapshots, / timeline (5 hourly, 7 daily, 2 weekly, 1 monthly) + quota, /home timeline off"
-else
-    warn "root filesystem is not btrfs — Snapper skipped"
-fi
-
 section "Audio (WirePlumber)"
 audio_conf=~/.config/wireplumber/wireplumber.conf.d/50-audio.conf
 # opt-in, but an install that already has the file keeps getting updates
@@ -413,15 +444,18 @@ cp scripts/rice-start.sh scripts/sysinfo.sh scripts/hwstat.sh scripts/deep-healt
 chmod +x ~/scripts/{rice-start,sysinfo,hwstat,deep-health,mok-reenroll,disk-cleanup}.sh
 ok "Scripts installed to ~/scripts/"
 
-# ble.sh requires --noattach first and ble-attach last; configs/bashrc goes in between
+# ble.sh requires --noattach first and ble-attach last; configs/bashrc goes in between.
+# The untouched file is kept once as ~/.bashrc.orig and both additions are fenced with markers.
 if ! grep -q 'blesh/ble.sh' ~/.bashrc; then
-    sed -i '1s|^|[[ $- == *i* ]] \&\& source ~/.local/share/blesh/ble.sh --noattach\n\n|' ~/.bashrc
+    [ -e ~/.bashrc.orig ] || cp ~/.bashrc ~/.bashrc.orig
+    sed -i '1s|^|# >>> fedora-kde-setup: ble.sh must load before anything else >>>\n[[ $- == *i* ]] \&\& source ~/.local/share/blesh/ble.sh --noattach\n# <<< fedora-kde-setup <<<\n\n|' ~/.bashrc
     ok "$HOME/.bashrc: ble.sh --noattach added at top"
 fi
 if ! grep -q 'zoxide init' ~/.bashrc; then
+    [ -e ~/.bashrc.orig ] || cp ~/.bashrc ~/.bashrc.orig
     # the ble-attach line must land in .bashrc unexpanded
     # shellcheck disable=SC2016
-    { echo ""; cat configs/bashrc; echo ""; echo '[[ ${BLE_VERSION-} ]] && ble-attach'; } >> ~/.bashrc
+    { echo ""; echo "# >>> fedora-kde-setup: configs/bashrc >>>"; cat configs/bashrc; echo ""; echo '[[ ${BLE_VERSION-} ]] && ble-attach'; echo "# <<< fedora-kde-setup <<<"; } >> ~/.bashrc
     ok "$HOME/.bashrc: configs/bashrc appended, ble-attach added last"
 fi
 
@@ -455,7 +489,7 @@ next "KDE Settings → Wallpaper → ~/Pictures/wallpaper.jpg"
 echo ""
 info "Conky runs as a systemd user service (systemctl --user status conky)"
 info "For retro emulation (ES-DE + PS1/PS2/PS3/Wii): bash scripts/emulation-setup.sh"
-info "For a local LLM (Strata, ~65 GB download): bash scripts/strata-setup.sh"
-info "For a local LLM via Ollama + Alpaca GUI (~9 GB download): bash scripts/ollama-setup.sh"
+info "For a local LLM (Strata, ~85 GB download): bash scripts/strata-setup.sh"
+info "For a local LLM via Ollama + Alpaca GUI (~9 GB download): sudo bash scripts/ollama-setup.sh"
 info "After the reboot, check the result: bash scripts/verify-setup.sh"
 ok "Reboot recommended."

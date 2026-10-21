@@ -6,10 +6,17 @@
 # big trim. On 2026-10-21 snapshots pinned 280 GB of deleted data on a 412 GB root (live data 104 GB).
 # Keeps on /: every number-cleanup snapshot plus 5 hourly, 7 daily, 2 weekly and 1 monthly timeline
 # ones; /home keeps no timeline snapshots (its timeline is off, fedora-setup.sh sets that).
-# Usage:  sudo bash scripts/disk-cleanup.sh
+# Usage:  sudo bash scripts/disk-cleanup.sh [--yes]   (--yes trims the snapshots without asking)
 
-# takes no options: --help (or any argument) prints this header instead of running
-[ $# -eq 0 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; case $1 in -h | --help) exit 0 ;; *) exit 2 ;; esac; }
+# --yes skips the confirmation; --help (or any other argument) prints this header instead of running
+YES=0
+[ $# -le 1 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 2; }
+case ${1-} in
+    "") ;;
+    --yes) YES=1 ;;
+    -h | --help) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    *) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 2 ;;
+esac
 
 set -eu
 [ "$(id -u)" -eq 0 ] || { echo "run: sudo bash $0"; exit 1; }
@@ -34,7 +41,7 @@ if command -v snapper >/dev/null && snapper list-configs 2>/dev/null | grep -q '
     done
     echo "  / keeps its number snapshots and the newest 5 hourly, 7 daily, 2 weekly and 1 monthly timeline ones;"
     echo "  /home keeps no timeline snapshots. Everything else is deleted."
-    read -r -p "  Apply and delete? [y/N] " ans
+    if [ "$YES" -eq 1 ]; then ans=y; else read -r -p "  Apply and delete? [y/N] " ans || ans=""; fi
     case $ans in
     y | Y)
         if snapper -c root set-config TIMELINE_LIMIT_HOURLY=5 TIMELINE_LIMIT_DAILY=7 TIMELINE_LIMIT_WEEKLY=2 \

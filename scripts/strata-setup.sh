@@ -1,6 +1,6 @@
 #!/bin/bash
 # Local LLM: Strata runs Qwen3.8-Flash-Next on the NVIDIA card plus system RAM.
-# Opt-in — about 65 GB of model files and a one-time engine compile.
+# Opt-in — about 85 GB of model files and a one-time engine compile.
 
 # takes no options: --help (or any argument) prints this header instead of running
 [ $# -eq 0 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; case $1 in -h | --help) exit 0 ;; *) exit 2 ;; esac; }

@@ -104,6 +104,8 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   ├── fresh-install.sh        # CI: apply-system.sh and the README's copy steps on a fresh Fedora
 │   └── check-packages.sh       # CI: every package the scripts install resolves in the scoped repos
 ├── setup.conf.example          # Per-machine overrides; copy to setup.conf
+├── CONTRIBUTING.md             # Checks to run, conventions, repository settings
+├── AGENTS.md                   # Boundaries for AI coding agents
 ├── SECURITY.md                 # How to report a vulnerability
 └── wallpaper/
     └── wallpaper.jpg           # Darth Vader — dark, teal glow, red lightsaber (5120x2880)
@@ -123,7 +125,7 @@ sudo dnf install -y git
 git clone https://github.com/26zl/fedora-kde-setup.git ~/fedora-setup
 cd ~/fedora-setup
 cp setup.conf.example setup.conf   # optional: only to override the detection
-bash scripts/fedora-setup.sh
+bash scripts/fedora-setup.sh       # prints what it will change and asks once; --yes skips that
 ```
 
 > The setup script automates most of the guide below. A few steps stay manual: the initial system upgrade + reboot (Step 1), the optional service trimming, applying the Layan Kvantum theme, and Secure Boot MOK enrollment + BIOS settings (NVIDIA only).
@@ -166,6 +168,8 @@ sudo dnf install -y \
   "https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm"
 sudo dnf group upgrade -y core
 ```
+
+The two release packages come over HTTPS from RPM Fusion's own server and carry its signing keys; every package after that is GPG-verified. Terra's key is fetched the same way (`--setopt=terra.gpgkey=`), so trust in both repos rests on TLS to their hosts.
 
 ### 4. GPU Drivers
 
@@ -515,10 +519,10 @@ AIDE flags every package update as a change; refresh the baseline with `sudo aid
 
 Lynis suggestions that must not be applied here: `rp_filter=1` (breaks Tailscale and VPN routing), `kernel.modules_disabled=1` (blocks NVIDIA and USB), lower `vm.swappiness` (180 is set for ZRAM), disabling USB storage.
 
-`kernel-hardening-checker` is not packaged for Fedora. It is stdlib-only Python, so run it from a pinned tag:
+`kernel-hardening-checker` is not packaged for Fedora. It is stdlib-only Python, so run it from a pinned commit (v0.6.17.1):
 
 ```bash
-git clone --depth 1 --branch v0.6.17.1 https://github.com/a13xp0p0v/kernel-hardening-checker /tmp/khc
+git init -q /tmp/khc && git -C /tmp/khc fetch -q --depth 1 https://github.com/a13xp0p0v/kernel-hardening-checker afc376f2a935994793343cfeb05953583cc30191 && git -C /tmp/khc checkout -q FETCH_HEAD
 sudo sysctl -a > /tmp/sysctl.txt
 python3 /tmp/khc/bin/kernel-hardening-checker -c /boot/config-$(uname -r) -l /proc/cmdline -s /tmp/sysctl.txt -m show_fail
 ```
@@ -638,7 +642,7 @@ git submodule update -q --init --recursive --depth 1
 make install PREFIX=~/.local
 ```
 
-`configs/bashrc` holds the bashrc additions (aliases, zoxide, mise, starship). `fedora-setup.sh` handles the deploy: it prepends the ble.sh `--noattach` loader to line 1, then appends `configs/bashrc` itself followed by the `ble-attach` line — ble.sh requires `--noattach` first and `ble-attach` last.
+`configs/bashrc` holds the bashrc additions (aliases, zoxide, mise, starship). `fedora-setup.sh` handles the deploy: it prepends the ble.sh `--noattach` loader to line 1, then appends `configs/bashrc` itself followed by the `ble-attach` line — ble.sh requires `--noattach` first and `ble-attach` last. Both additions sit between `# >>> fedora-kde-setup` and `# <<< fedora-kde-setup` markers, and the untouched file is kept once as `~/.bashrc.orig`.
 
 [Bash-it](https://github.com/Bash-it/bash-it) is not used: ble.sh, Starship and `configs/bashrc` already cover it, and Kitty runs fish, not bash.
 
@@ -699,7 +703,7 @@ Apply: **System Settings → Colors → Darth Vader → Apply**
 
 ```bash
 sudo dnf install -y kvantum
-git clone --depth=1 https://github.com/vinceliuice/Layan-kde.git /tmp/layan-kde
+git init -q /tmp/layan-kde && git -C /tmp/layan-kde fetch -q --depth 1 https://github.com/vinceliuice/Layan-kde.git a0b6a4956022276aee33309b2e07d1d0ef3db30c && git -C /tmp/layan-kde checkout -q FETCH_HEAD
 ```
 
 In **Kvantum Manager:**
@@ -914,7 +918,7 @@ Strata compiles its engine on Linux (the pinned v0.1.40.1 has Windows-only relea
 [Ollama](https://ollama.com) serves `gemma-4-12B-it-uncensored-heretic` (an uncensored community build of Gemma, from Hugging Face) on `127.0.0.1:11434`, with [Alpaca](https://flathub.org/apps/com.jeffser.Alpaca) as the chat GUI. Opt-in — about 9 GB:
 
 ```bash
-bash scripts/ollama-setup.sh
+sudo bash scripts/ollama-setup.sh
 ```
 
 - **Upstream build**: Fedora's `ollama` links ROCm and pulls ~4 GiB of AMD libraries that are useless next to an NVIDIA card, so the script installs the CUDA build from Ollama's GitHub release, pinned by version and SHA-256. Re-run it after a version bump.
@@ -926,7 +930,7 @@ bash scripts/ollama-setup.sh
 
 ## Scripts
 
-Apart from `hwstat.sh`, which takes the reading to print, the scripts take no options: `--help`, or any other argument, prints the script's header and exits without changing anything. Output is plain text when piped or with `NO_COLOR` set.
+`--help` on any script prints its header and exits without changing anything, and output is plain text when piped or with `NO_COLOR` set. `fedora-setup.sh` and `apply-system.sh` print what they will change and ask once, `fedora-upgrade.sh` asks before passing `--allowerasing` and `disk-cleanup.sh` before trimming snapshots; `--yes` answers those with yes, and without a terminal the first two refuse to run while the last two take the no. `ollama-setup.sh test` verifies an install, and `hwstat.sh` takes the reading to print. Any other argument prints the header and exits 2.
 
 ### `scripts/fedora-setup.sh`
 
@@ -994,8 +998,8 @@ Restarts Conky.
 
 ```bash
 mkdir -p ~/scripts
-cp scripts/rice-start.sh scripts/sysinfo.sh scripts/hwstat.sh scripts/deep-health.sh scripts/mok-reenroll.sh ~/scripts/
-chmod +x ~/scripts/{rice-start,sysinfo,hwstat,deep-health,mok-reenroll}.sh
+cp scripts/rice-start.sh scripts/sysinfo.sh scripts/hwstat.sh scripts/deep-health.sh scripts/mok-reenroll.sh scripts/disk-cleanup.sh ~/scripts/
+chmod +x ~/scripts/{rice-start,sysinfo,hwstat,deep-health,mok-reenroll,disk-cleanup}.sh
 ```
 
 Conky and `sysinfo.sh` expect `hwstat.sh` next to them in `~/scripts/`.
@@ -1049,6 +1053,11 @@ pgrep conky && echo "Conky running"
 - **System files**: every target listed under Repository Structure is a file the setup adds, so deleting it undoes it, except `/etc/dnf/dnf.conf`, `/etc/tuned/ppd.conf` and `/etc/plasmalogin.conf`, which replace package defaults. Delete those and run `sudo dnf reinstall <package>` (`rpm -qf <file>` names it); a reinstall alone keeps the edited file because it is `%config(noreplace)`.
 - **Services, firewall, KDE settings**: the commands in the guide above are the record; `systemctl unmask`, `firewall-cmd --permanent --add-service=<name>` and `kwriteconfig6` with the old value reverse them.
 - **User configs**: `fedora-setup.sh` keeps every config it replaced as `<file>.~N~` next to it.
+- **GRUB default**: `/etc/default/grub.orig` is the file before the setup edited it; copy it back and run `sudo grub2-mkconfig -o /boot/grub2/grub.cfg`.
+- **Terminal extras**: `fedora-setup.sh` installs lazygit to `/usr/local/bin`, ble.sh to `~/.local/share/blesh`, the JetBrains Mono Nerd Font to `~/.local/share/fonts/JetBrainsMono`, and the helper scripts to `~/scripts`; remove those, then delete the two blocks between the `# >>> fedora-kde-setup` and `# <<< fedora-kde-setup` markers from `~/.bashrc`, or restore `~/.bashrc.orig`.
+- **Ollama** (`scripts/ollama-setup.sh`): `sudo systemctl disable --now ollama`, then remove `/etc/systemd/system/ollama.service` and its `.d` drop-ins, `/usr/local/bin/ollama`, `/usr/local/lib/ollama`, `/var/lib/ollama`, the `ollama` user and group, and the GUI with `flatpak uninstall com.jeffser.Alpaca`.
+- **Strata** (`scripts/strata-setup.sh`): remove the checkout (`~/Prosjekter/Strata`), the model files (`/mnt/data/Strata-data`), the CUDA repo `/etc/yum.repos.d/cuda-fedora44.repo`, and `sudo dnf remove cuda-toolkit-13-4`.
+- **Emulation** (`scripts/emulation-setup.sh`): `flatpak uninstall` the emulators, `sudo dnf remove emulationstation-de`, and remove `~/ES-DE/custom_systems/es_systems.xml`; ROMs under `~/Emulation` are left alone.
 
 ---
 
@@ -1083,7 +1092,7 @@ What Fedora 45 changes for this setup (from its [ChangeSet](https://fedoraprojec
 
 | Tool | Source |
 | --- | --- |
-| Fedora KDE | [fedoraproject.org/spins/kde](https://fedoraproject.org/spins/kde) |
+| Fedora KDE | [fedoraproject.org/kde](https://fedoraproject.org/kde/) |
 | RPM Fusion | [rpmfusion.org](https://rpmfusion.org/) |
 | NVIDIA drivers | [rpmfusion.org/Howto/NVIDIA](https://rpmfusion.org/Howto/NVIDIA) |
 | SCX Schedulers | [github.com/sched-ext/scx](https://github.com/sched-ext/scx) |

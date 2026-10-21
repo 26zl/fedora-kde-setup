@@ -3,10 +3,18 @@
 # release, checks the machine, takes a snapper snapshot of / and downloads the
 # upgrade; it does not reboot. Start the upgrade with `sudo dnf system-upgrade reboot`
 # and run scripts/verify-setup.sh on the first boot of the new release.
-# Run as regular user — sudo is called where needed
+# Run as regular user — sudo is called where needed; --yes answers the --allowerasing
+# question with yes
 
-# takes no options: --help (or any argument) prints this header instead of running
-[ $# -eq 0 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; case $1 in -h | --help) exit 0 ;; *) exit 2 ;; esac; }
+# --yes skips the confirmation; --help (or any other argument) prints this header instead of running
+YES=0
+[ $# -le 1 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 2; }
+case ${1-} in
+    "") ;;
+    --yes) YES=1 ;;
+    -h | --help) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    *) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 2 ;;
+esac
 
 set -e
 [ "$EUID" -ne 0 ] || {
@@ -98,7 +106,7 @@ if grep -q 'Failed to resolve the transaction' "$log"; then
     grep -oE 'installed package [^ ]+' "$log" | sort -u | sed 's/^installed package /  blocked by: /'
     warn "these have no build for Fedora $target yet; --allowerasing removes them,"
     warn "and they can be reinstalled once their repository catches up"
-    read -rp "  Continue with --allowerasing? [y/N] " reply || reply=""
+    if [ "$YES" -eq 1 ]; then reply=y; else read -rp "  Continue with --allowerasing? [y/N] " reply || reply=""; fi
     [[ $reply == [yY]* ]] || { warn "stopped before downloading Fedora $target; Fedora $current stays as it is"; exit 1; }
     erasing=(--allowerasing)
 fi

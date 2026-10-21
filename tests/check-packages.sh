@@ -1,8 +1,9 @@
 #!/bin/bash
 # In a fresh Fedora container: add the repos the setup scripts add, then check that
-# every package named on a "dnf install -y" line resolves. Run by CI for the current
-# release and the next one, so a rename upstream or a repo that lags a release shows
-# up before an install does.
+# every package named on a "dnf install -y" line resolves and every ID on a
+# "flatpak install -y" line exists on Flathub. Run by CI for the current release and
+# the next one, so a rename upstream or a repo that lags a release shows up before an
+# install does.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
@@ -32,6 +33,13 @@ for p in $(sed ':a;/\\$/{N;s/\\\n//;ba}' scripts/*.sh | grep -oP 'dnf install -y
            tr ' ' '\n' | grep -E '^[a-z0-9][a-z0-9._+-]*$' | sort -u); do
     # -y: makecache does not always import Terra's key; unanswered, the prompt drops the repo
     dnf -y -q repoquery --available "$p" | grep -q . || { echo "::$level::not available on Fedora $rel: $p"; missing=1; }
+done
+
+echo "==> Flathub: resolving Flatpak IDs"
+for id in $(sed ':a;/\\$/{N;s/\\\n//;ba}' scripts/*.sh | grep -oP 'flatpak install -y (--system )?flathub \K.*' |
+            tr ' ' '\n' | grep -E '^[A-Za-z0-9_.-]+$' | sort -u); do
+    curl -fsS -o /dev/null --max-time 30 "https://flathub.org/api/v2/appstream/$id" ||
+        { echo "::$level::not on Flathub: $id"; missing=1; }
 done
 [ "$level" = warning ] && exit 0
 exit $missing

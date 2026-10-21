@@ -32,6 +32,8 @@ section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; }
 OLLAMA_VERSION=v0.40.7
 OLLAMA_SHA256=7f082e625b4c334df84ed1558fe282d6d8091fe3545790aef30b3a9c50d44d41
 SRC=hf.co/llmfan46/gemma-4-12B-it-uncensored-heretic-GGUF:Q4_K_M
+# the GGUF layer behind that tag; a Hugging Face tag can move, so the pull is checked against it
+MODEL_SHA256=0930ee39b491bfef38c2d8d843576672648b2b0460ff8bd2870a35d4f50e6735
 NAME=gemma4-12b-heretic
 CTX=8192
 TARGET=3000          # bake the largest num_gpu that still leaves this many MiB free
@@ -43,10 +45,12 @@ DROPDIR=/etc/systemd/system/ollama.service.d
 
 free_mib() { nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | head -1; }
 
-# load NAME at the given num_gpu and fixed context, then report the free VRAM
+# load NAME at the given num_gpu and fixed context, then report the free VRAM — but only
+# once the model is actually resident, so a failed load is not read as lots of free VRAM
 load_free() {
-    curl -s -m 300 "$API/api/generate" -d \
-        "{\"model\":\"$NAME\",\"stream\":false,\"think\":false,\"keep_alive\":\"30s\",\"prompt\":\"hi\",\"options\":{\"num_ctx\":$CTX,\"num_gpu\":$1,\"num_predict\":1}}" >/dev/null
+    curl -fsS -m 300 "$API/api/generate" -d \
+        "{\"model\":\"$NAME\",\"stream\":false,\"think\":false,\"keep_alive\":\"30s\",\"prompt\":\"hi\",\"options\":{\"num_ctx\":$CTX,\"num_gpu\":$1,\"num_predict\":1}}" >/dev/null 2>&1 || return 1
+    "$OLLAMA" ps 2>/dev/null | grep -q "$NAME" || return 1
     free_mib
 }
 
@@ -86,6 +90,8 @@ fi
 set -euo pipefail
 [ "$(id -u)" -eq 0 ] || { echo "run with sudo (or 'bash $0 test' to only verify): sudo bash $0"; exit 1; }
 command -v nvidia-smi >/dev/null || { warn "no nvidia-smi — this setup targets an NVIDIA card"; exit 1; }
+tmp=$(mktemp -d /var/tmp/ollama-setup.XXXXXX)
+trap 'rm -rf "$tmp"' EXIT
 
 section "Dependencies"
 dnf install -y jq zstd
@@ -95,8 +101,6 @@ section "Ollama $OLLAMA_VERSION (upstream)"
 if "$OLLAMA" --version 2>/dev/null | grep -q "version is ${OLLAMA_VERSION#v}$"; then
     ok "already installed"
 else
-    tmp=$(mktemp -d /var/tmp/ollama-install.XXXXXX)
-    trap 'rm -rf "$tmp"' EXIT
     curl -fL --retry 3 -o "$tmp/ollama.tar.zst" \
         "https://github.com/ollama/ollama/releases/download/$OLLAMA_VERSION/ollama-linux-amd64.tar.zst"
     echo "$OLLAMA_SHA256  $tmp/ollama.tar.zst" | sha256sum -c -
@@ -179,10 +183,14 @@ ok "ollama.service running, hardening + VRAM reserve applied"
 
 section "Model: $NAME"
 if pgrep -f '^ollama pull' >/dev/null; then
-    warn "waiting for a running ollama pull to finish"
-    while pgrep -f '^ollama pull' >/dev/null; do sleep 15; done
+    warn "waiting up to an hour for a running ollama pull to finish"
+    for _ in $(seq 240); do pgrep -f '^ollama pull' >/dev/null || break; sleep 15; done
+    pgrep -f '^ollama pull' >/dev/null && { warn "a pull is still running; try again later"; exit 1; }
 fi
 "$OLLAMA" pull "$SRC"
+modelfile=$("$OLLAMA" show "$SRC" --modelfile 2>/dev/null || true)
+[[ $modelfile == *"sha256-$MODEL_SHA256"* ]] ||
+    { warn "$SRC is not the pinned build; update MODEL_SHA256 if the change is intended"; exit 1; }
 "$OLLAMA" cp "$SRC" "$NAME"
 
 # OLLAMA_GPU_OVERHEAD alone does not hold the headroom; a baked num_gpu does. A full load leaves
@@ -194,7 +202,7 @@ blocks=$(curl -s -m 30 "$API/api/show" -d "{\"model\":\"$NAME\"}" |
 best="" bestfree_ng="" bestfree_val=0
 for ng in "$blocks" $((blocks - 3)) $((blocks - 6)) $((blocks - 9)) $((blocks - 12)) $((blocks - 15)); do
     [ "$ng" -ge 1 ] || continue
-    free=$(load_free "$ng")
+    free=$(load_free "$ng") || free=""
     "$OLLAMA" stop "$NAME" >/dev/null 2>&1 || true
     echo "  num_gpu=$ng -> ${free} MiB free"
     if [ "${free:-0}" -ge "$TARGET" ]; then best=$ng; break; fi
@@ -202,10 +210,8 @@ for ng in "$blocks" $((blocks - 3)) $((blocks - 6)) $((blocks - 9)) $((blocks - 
 done
 [ -n "$best" ] || best=${bestfree_ng:-$((blocks - 15))}
 echo "  baking num_gpu=$best, num_ctx=$CTX"
-tmp2=$(mktemp)
-printf 'FROM %s\nPARAMETER num_gpu %s\nPARAMETER num_ctx %s\n' "$NAME" "$best" "$CTX" > "$tmp2"
-"$OLLAMA" create "$NAME" -f "$tmp2"
-rm -f "$tmp2"
+printf 'FROM %s\nPARAMETER num_gpu %s\nPARAMETER num_ctx %s\n' "$NAME" "$best" "$CTX" > "$tmp/Modelfile"
+"$OLLAMA" create "$NAME" -f "$tmp/Modelfile"
 # only the tuned name stays listed, so a GUI cannot pick the source entry and load it uncapped
 "$OLLAMA" rm "$SRC" >/dev/null 2>&1 || true
 ok "$NAME tuned"

@@ -63,6 +63,14 @@ jobs:
             bash -n "$f" && echo "$f: syntax OK" || exit 1
           done
 
+      - name: Every script answers --help without side effects
+        run: |
+          for f in scripts/*.sh; do
+            case $f in scripts/hwstat.sh) continue ;; esac  # hwstat takes a reading, not --help
+            bash "$f" --help >/dev/null || { echo "FAIL: $f --help exited non-zero"; exit 1; }
+          done
+          echo "all --help OK"
+
       - name: Run the hardware detection tests
         run: bash tests/hw-detect.sh
 
