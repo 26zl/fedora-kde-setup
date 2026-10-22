@@ -21,7 +21,8 @@ find_session() {
         [[ $session_uid =~ ^[0-9]+$ ]] || continue
         session_user=$(id -nu "$session_uid") || continue
         session_runtime="${HW_ROOT:-}/run/user/$session_uid"
-        wayland_socket=$(find "$session_runtime" -maxdepth 1 -type s -name 'wayland-*' -printf '%f\n' -quit)
+        # the portal's FUSE mount under the runtime dir denies even root a stat, which is only noise here
+        wayland_socket=$(find "$session_runtime" -maxdepth 1 -type s -name 'wayland-*' -printf '%f\n' -quit 2>/dev/null || true)
         [ -n "$wayland_socket" ] || continue
         session_id=$candidate
         return 0
