@@ -411,6 +411,8 @@ sudo snapper -c root list
 
 To restore, boot from a live USB, mount the BTRFS partition, and use `btrfs subvolume` to swap snapshots — or use BTRFS Assistant.
 
+Snapshots sit on the same disk as the data, so they are not a backup. [kopia](https://github.com/kopia/kopia) does encrypted, incremental backups to another disk or a remote and is not part of this setup.
+
 ### 14. Disable Unnecessary Services
 
 ```bash
@@ -558,6 +560,10 @@ and Flatpak already covers the GUI applications here.
 `firewalld` (see Firewall Hardening above), `mullvad-vpn`, `tailscale`, `wireguard-tools`,
 `openvpn`. DNS never gets a forced global resolver — see `system/resolved-hardening.conf`.
 
+### Browser
+
+`system/firefox-policies.json`, deployed to `/etc/firefox/policies/policies.json`, turns off telemetry, Studies, Pocket and sponsored content and turns on tracking protection for every profile. Per-profile hardening beyond that, such as fingerprinting resistance and cache behaviour, is what a [Betterfox](https://github.com/yokoffing/Betterfox) or [arkenfox](https://github.com/arkenfox/user.js) `user.js` does; neither is deployed here.
+
 ### Firmware and Secure Boot
 
 `mokutil` manages enrolled keys (see NVIDIA Drivers + Secure Boot), `fwupd` applies
@@ -626,7 +632,7 @@ cp configs/fish/functions/ya.fish ~/.config/fish/functions/ya.fish
 sudo dnf install -y zoxide fzf ripgrep fd-find bat eza git-delta
 ```
 
-lazygit is not in the Fedora repos and the `atim/lazygit` COPR stopped at 0.47, so `fedora-setup.sh` installs the pinned upstream release (v0.65.1, SHA-256 checked) to `/usr/local/bin`.
+lazygit is not in the Fedora repos and the `atim/lazygit` COPR stopped at 0.47, so `fedora-setup.sh` installs the pinned upstream release (v0.66.2, SHA-256 checked) to `/usr/local/bin`.
 
 ### ble.sh (bash syntax highlighting)
 

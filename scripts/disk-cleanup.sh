@@ -3,7 +3,7 @@
 # flatpak runtimes, PackageKit's and dnf's package caches, docker's unused images and build cache
 # (volumes stay) and the calling user's unused podman images. Lists the snapshots and asks before
 # deleting any; the rest is cache. Waits for btrfs to release the deleted snapshots, minutes after a
-# big trim. On 2026-10-21 snapshots pinned 280 GB of deleted data on a 412 GB root (live data 104 GB).
+# big trim; old timeline snapshots can pin hundreds of GB of deleted data.
 # Keeps on /: every number-cleanup snapshot plus 5 hourly, 7 daily, 2 weekly and 1 monthly timeline
 # ones; /home keeps no timeline snapshots (its timeline is off, fedora-setup.sh sets that).
 # Usage:  sudo bash scripts/disk-cleanup.sh [--yes]   (--yes trims the snapshots without asking)

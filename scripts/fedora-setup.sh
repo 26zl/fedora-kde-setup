@@ -197,8 +197,8 @@ fetch() {  # url sha256 file
 }
 
 if ! command -v lazygit &>/dev/null; then
-    fetch https://github.com/jesseduffield/lazygit/releases/download/v0.65.1/lazygit_0.65.1_linux_x86_64.tar.gz \
-        02beacbcda0fa342e50ae3480ba8147307353af3fb28e1d5f790e02329c201a6 "$dl/lazygit.tar.gz"
+    fetch https://github.com/jesseduffield/lazygit/releases/download/v0.66.2/lazygit_0.66.2_linux_x86_64.tar.gz \
+        158efc9ddfa1241fab5fb3526bb442c8dc6c4b1904d73213b9e4e93e03c52034 "$dl/lazygit.tar.gz"
     tar -xzf "$dl/lazygit.tar.gz" -C "$dl" lazygit
     sudo install -m755 "$dl/lazygit" /usr/local/bin/lazygit
 fi
@@ -265,9 +265,8 @@ if [ "$(findmnt -no FSTYPE /)" = btrfs ]; then
     # /home changes constantly; its timeline snapshots are what fill the disk, so
     # keep only manual and number-cleanup snapshots there and let / carry the timeline
     sudo snapper -c home set-config TIMELINE_CREATE=no || warn "home timeline not disabled"
-    # snapper's defaults keep 10 hourly, daily, monthly and yearly snapshots, and turning the home
-    # timeline off does not delete the ones already made: on 2026-10-21 snapshots pinned 280 GB of
-    # deleted data on a 412 GB root whose live data was 104 GB. scripts/disk-cleanup.sh trims a full disk
+    # snapper's defaults keep 10 of every timeline tier and TIMELINE_CREATE=no does not delete the
+    # snapshots already made; left alone they pin hundreds of GB (scripts/disk-cleanup.sh trims a full disk)
     sudo snapper -c root set-config TIMELINE_LIMIT_HOURLY=5 TIMELINE_LIMIT_DAILY=7 TIMELINE_LIMIT_WEEKLY=2 \
         TIMELINE_LIMIT_MONTHLY=1 TIMELINE_LIMIT_YEARLY=0 || warn "root timeline limits not set"
     sudo snapper -c home set-config TIMELINE_LIMIT_HOURLY=0 TIMELINE_LIMIT_DAILY=0 TIMELINE_LIMIT_WEEKLY=0 \

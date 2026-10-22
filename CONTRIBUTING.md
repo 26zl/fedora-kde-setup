@@ -33,4 +33,4 @@ Recorded here because they live only in GitHub's settings: the `protect-main` ru
 deletion and force pushes and requires the five CI checks (shellcheck, validate, packages,
 gitleaks, trivy) with no bypass; secret scanning, push protection, Dependabot security updates,
 CodeQL for Actions and private vulnerability reporting are on; merge commits, squash and
-rebase are all allowed.
+rebase are all allowed, and branches are deleted on merge.

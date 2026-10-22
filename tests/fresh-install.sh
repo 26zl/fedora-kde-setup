@@ -1,10 +1,10 @@
 #!/bin/bash
 # Runs the deploy steps on a fresh Fedora, each in its own throwaway container:
-# scripts/apply-system.sh for a desktop with NVIDIA and for a laptop without, and every
-# cp/mkdir line in the README's code blocks, each block in a new home. A step that only
-# works where its target directory already exists fails here instead of on a first
-# install. Commands that need a booted system are stubbed; cp, mkdir and rm are real.
-# Needs podman or docker.
+# scripts/apply-system.sh for a desktop with NVIDIA and for a laptop without, every
+# cp/mkdir line in the README's code blocks, each block in a new home, and
+# scripts/fedora-setup.sh up to its confirmation gate. A step that only works where its
+# target directory already exists fails here instead of on a first install. Commands that
+# need a booted system are stubbed; cp, mkdir and rm are real. Needs podman or docker.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 image=registry.fedoraproject.org/fedora:44
@@ -12,7 +12,7 @@ image=registry.fedoraproject.org/fedora:44
 if [ "${1-}" != --inside ]; then
     engine=$(command -v podman || command -v docker) || { echo "needs podman or docker" >&2; exit 2; }
     failed=0
-    for target in desktop laptop readme; do
+    for target in desktop laptop readme setup-gate; do
         echo "==> $target"
         # a local setup.conf would override the hardware under test
         # shellcheck disable=SC2016  # $0 is expanded by the container's shell
@@ -55,6 +55,20 @@ case $2 in
             f { l = l $0; if (sub(/\\$/, "", l)) next; sub(/[ \t]+#.*$/, "", l)
                 if (l ~ /^(sudo )?(cp|mkdir -p) / && l ~ /[ \t][~\/][^ \t]*$/) print b "\t" l; l = "" }' README.md)
         exit "$failed"
+        ;;
+    setup-gate)
+        # fedora-setup.sh refuses root, and run as a user without a terminal it must stop at the
+        # confirmation: after the hardware summary and the plan, before the first sudo
+        if bash scripts/fedora-setup.sh </dev/null >/dev/null 2>&1; then
+            echo "FAILED: fedora-setup.sh ran as root" >&2; exit 1
+        fi
+        useradd -m tester && chmod 755 "$stub" "$HW_ROOT"
+        out=$(runuser -u tester -- env PATH="$PATH" HW_ROOT="$HW_ROOT" NO_COLOR=1 HOME=/home/tester \
+            bash scripts/fedora-setup.sh </dev/null 2>&1) && rc=0 || rc=$?
+        if [ "$rc" -ne 1 ] || [[ $out != *"━━━ Plan ━━━"* ]] || [[ $out != *"not a terminal"* ]]; then
+            echo "FAILED: expected the plan and a refusal with exit 1, got exit $rc:" >&2; echo "$out" >&2; exit 1
+        fi
+        echo "fedora-setup.sh: refuses root, prints the plan and stops without --yes"
         ;;
     *) echo "unknown target: $2" >&2; exit 2 ;;
 esac
