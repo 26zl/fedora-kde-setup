@@ -1,7 +1,6 @@
 #!/bin/bash
 # System status — quick health overview
 
-# takes no options: --help (or any argument) prints this header instead of running
 [ $# -eq 0 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; case $1 in -h | --help) exit 0 ;; *) exit 2 ;; esac; }
 
 HWSTAT="$(dirname "$(readlink -f "$0")")/hwstat.sh"
@@ -20,7 +19,6 @@ line
 echo -e "  ${TEAL}SYSTEM STATUS${RESET}  $(date '+%A, %d %B %Y  %H:%M')"
 line
 
-# System
 KERNEL=$(uname -r)
 UPTIME=$(uptime -p | sed 's/up //')
 echo -e "  ${GRAY}kernel ${RESET}${WHITE}${KERNEL}${RESET}"
@@ -28,16 +26,15 @@ echo -e "  ${GRAY}uptime ${RESET}${WHITE}${UPTIME}${RESET}"
 
 line
 
-# CPU — /proc/stat is cumulative since boot, so sample twice and use the delta
-read -r _ u1 n1 s1 i1 w1 _ < /proc/stat
+# CPU counters are cumulative since boot, so load uses the delta between samples.
+read -r _ u1 n1 s1 i1 w1 irq1 soft1 steal1 _ < /proc/stat
 sleep 0.5
-read -r _ u2 n2 s2 i2 w2 _ < /proc/stat
-CPU_LOAD=$(awk -v busy=$(( (u2 + n2 + s2) - (u1 + n1 + s1) )) \
-               -v total=$(( (u2 + n2 + s2 + i2 + w2) - (u1 + n1 + s1 + i1 + w1) )) \
+read -r _ u2 n2 s2 i2 w2 irq2 soft2 steal2 _ < /proc/stat
+CPU_LOAD=$(awk -v busy=$(( (u2 + n2 + s2 + irq2 + soft2 + steal2) - (u1 + n1 + s1 + irq1 + soft1 + steal1) )) \
+               -v total=$(( (u2 + n2 + s2 + i2 + w2 + irq2 + soft2 + steal2) - (u1 + n1 + s1 + i1 + w1 + irq1 + soft1 + steal1) )) \
                'BEGIN {printf "%.1f", total ? busy * 100 / total : 0}')
 CPU_FREQ=$(grep 'cpu MHz' /proc/cpuinfo | awk '{sum+=$4; count++} END {printf "%.2f", sum/count/1000}')
 CPU_TEMP=$("$HWSTAT" cpu-temp)
-# "AMD Ryzen 7 5800X 8-Core Processor" -> "Ryzen 7 5800X", "Intel(R) Core(TM) i5-1235U" -> "Core i5-1235U"
 CPU_NAME=$(grep -m1 'model name' /proc/cpuinfo |
     sed -E 's/.*: //; s/\((R|TM)\)//g; s/ CPU @.*$//; s/^.*(AMD|Intel) //; s/ [0-9]+-Core Processor *$//; s/ (w\/|with) Radeon.*$//')
 echo -e "  ${TEAL}CPU  ${GRAY}${CPU_NAME}${RESET}"
@@ -45,7 +42,6 @@ echo -e "  ${GRAY}load   ${WHITE}${CPU_LOAD}%  ${GRAY}freq  ${WHITE}${CPU_FREQ}G
 
 line
 
-# GPU — NVIDIA via nvidia-smi, AMD and Intel via sysfs; fields that cannot be read are left out
 GPU_NAME=$("$HWSTAT" gpu-name)
 GPU_TEMP=$("$HWSTAT" gpu-temp)
 GPU_LOAD=$("$HWSTAT" gpu-load)
@@ -60,7 +56,6 @@ if [ -n "$GPU_NAME" ]; then
     line
 fi
 
-# Memory
 MEM_TOTAL=$(free -h | awk '/^Mem:/ {print $2}')
 MEM_USED=$(free -h | awk '/^Mem:/ {print $3}')
 MEM_PCT=$(free | awk '/^Mem:/ {printf "%.0f", $3/$2*100}')
@@ -87,7 +82,6 @@ done < <(findmnt -rn -o TARGET 2>/dev/null | grep -E '^/mnt/[^/]+$')
 
 line
 
-# Network — interface of the default route
 IFACE=$(ip route show default | grep -oP 'dev \K\S+' | head -1)
 IP=$(ip -4 addr show dev "$IFACE" 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}')
 echo -e "  ${TEAL}NETWORK${RESET}"
@@ -95,7 +89,6 @@ echo -e "  ${GRAY}ip     ${WHITE}${IP:-No address}${RESET}"
 
 line
 
-# Top processes
 echo -e "  ${TEAL}TOP PROCESSES${RESET}"
 ps -eo comm,pcpu --sort=-pcpu | head -4 | tail -3 | \
     awk -v teal="$TEAL" -v gray="$GRAY" -v white="$WHITE" -v reset="$RESET" \
@@ -104,7 +97,6 @@ ps -eo comm,pcpu --sort=-pcpu | head -4 | tail -3 | \
 line
 echo ""
 
-# Warnings
 WARN=0
 [ "$MEM_PCT" -gt 85 ] && echo -e "  ${RED}WARNING: RAM usage above 85%${RESET}" && WARN=1
 GPU_TEMP_C=${GPU_TEMP%%[!0-9]*}

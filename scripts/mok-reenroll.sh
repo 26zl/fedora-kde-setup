@@ -2,7 +2,6 @@
 # Re-enroll the akmods signing key after a BIOS flash cleared the MOK list, which
 # leaves akmods-built modules such as NVIDIA's unloadable under Secure Boot; run it from the TTY.
 
-# takes no options: --help (or any argument) prints this header instead of running
 [ $# -eq 0 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; case $1 in -h | --help) exit 0 ;; *) exit 2 ;; esac; }
 
 set -e
@@ -19,10 +18,15 @@ section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; }
 [ "$(id -u)" -eq 0 ] || { echo "run with sudo"; exit 1; }
 
 section "State"
-if ! mokutil --sb-state 2>/dev/null | grep -qi enabled; then
-    ok "Secure Boot is off — unsigned modules load fine, nothing to enroll"
-    exit 0
+if ! SB=$(mokutil --sb-state 2>/dev/null); then
+    warn "cannot determine Secure Boot state"
+    exit 1
 fi
+case "$SB" in
+    *"SecureBoot enabled"*) ;;
+    *"SecureBoot disabled"*) ok "Secure Boot is off — nothing to enroll"; exit 0 ;;
+    *) warn "unknown Secure Boot state"; exit 1 ;;
+esac
 ok "Secure Boot enabled"
 
 NVIDIA=0

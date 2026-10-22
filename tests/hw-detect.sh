@@ -149,6 +149,17 @@ HW_ROOT="$root"
 check "no GPU: branch" "" "$(hw_nvidia_branch)"
 check "no GPU: summary" "desktop, unknown CPU, GPU: none" "$(hw_summary)"
 
+stub locale 'printf "LANG=en_US.UTF-8\\nLC_TIME=fr_FR.UTF-8\\n"'
+root="$tmp/locales"
+mkdir -p "$root/etc"
+printf 'LANG="de_DE.UTF-8"\nLC_MESSAGES=\047es_ES.UTF-8\047\n' >"$root/etc/locale.conf"
+HW_ROOT="$root"
+check "languages: environment and persistent locales" "en_US:en:de_DE:de:es_ES:es:fr_FR:fr" "$(hw_install_langs)"
+stub locale 'printf "LANG=C.UTF-8\\n"'
+check "languages: C terminal keeps persistent translations" "en_US:en:de_DE:de:es_ES:es" "$(hw_install_langs)"
+HW_ROOT="$tmp/no-locale-conf"
+check "languages: missing persistent config" "en_US:en" "$(hw_install_langs)"
+
 # hwstat.sh: CPU temperature from k10temp or coretemp, skipping other sensors.
 root="$tmp/hwmon-amd"
 mkdir -p "$root/sys/class/hwmon/hwmon0" "$root/sys/class/hwmon/hwmon1"

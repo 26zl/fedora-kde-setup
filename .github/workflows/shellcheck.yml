@@ -9,7 +9,6 @@ on:
 permissions:
   contents: read
 
-# Superseded runs on the same ref are pointless once a newer commit exists.
 concurrency:
   group: "shellcheck-${{ github.ref }}"
   cancel-in-progress: true

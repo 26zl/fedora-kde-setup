@@ -1,5 +1,3 @@
-// fastfetch — DarthVader theme. Same module layout as the nixos-config copy,
-// recolored to this repo's palette (teal #00c8a8 / red #cc2222).
 {
   "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
   "logo": { "type": "auto", "padding": { "top": 1, "left": 2 } },

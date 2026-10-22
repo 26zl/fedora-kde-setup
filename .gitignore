@@ -50,7 +50,7 @@ $RECYCLE.BIN/
 # Per-machine overrides (setup.conf.example is the template)
 setup.conf
 
-# Claude Code
+# Local tool configuration
 CLAUDE.md
 .claude/
 

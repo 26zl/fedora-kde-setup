@@ -1,10 +1,6 @@
 #!/bin/bash
-# Runs the deploy steps on a fresh Fedora, each in its own throwaway container:
-# scripts/apply-system.sh for a desktop with NVIDIA and for a laptop without, every
-# cp/mkdir line in the README's code blocks, each block in a new home, and
-# scripts/fedora-setup.sh up to its confirmation gate. A step that only works where its
-# target directory already exists fails here instead of on a first install. Commands that
-# need a booted system are stubbed; cp, mkdir and rm are real. Needs podman or docker.
+# Test system deployment, README copy steps and setup confirmation in throwaway Fedora containers.
+# Commands that need a booted system are stubbed; filesystem changes are real.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 image=registry.fedoraproject.org/fedora:44
@@ -30,7 +26,7 @@ dnf -y -q install systemd-udev kmod tuned diffutils
 stub=$(mktemp -d)
 printf '#!/bin/sh\nexec "$@"\n' >"$stub/sudo"
 printf '#!/bin/sh\nexit 1\n' >"$stub/snapper"
-for c in grubby modprobe restorecon setquota sysctl systemctl systemd-tmpfiles tuned-adm udevadm; do
+for c in grubby kwriteconfig6 modprobe restorecon setquota sysctl systemctl systemd-tmpfiles tuned-adm udevadm; do
     printf '#!/bin/sh\nexit 0\n' >"$stub/$c"
 done
 chmod +x "$stub"/*
@@ -57,8 +53,7 @@ case $2 in
         exit "$failed"
         ;;
     setup-gate)
-        # fedora-setup.sh refuses root, and run as a user without a terminal it must stop at the
-        # confirmation: after the hardware summary and the plan, before the first sudo
+        # Noninteractive setup must stop at confirmation before the first sudo call.
         if bash scripts/fedora-setup.sh </dev/null >/dev/null 2>&1; then
             echo "FAILED: fedora-setup.sh ran as root" >&2; exit 1
         fi
@@ -69,6 +64,29 @@ case $2 in
             echo "FAILED: expected the plan and a refusal with exit 1, got exit $rc:" >&2; echo "$out" >&2; exit 1
         fi
         echo "fedora-setup.sh: refuses root, prints the plan and stops without --yes"
+        printf '#!/bin/sh\necho "unexpected sudo call" >&2\nexit 99\n' >"$stub/sudo"
+        for unsupported in architecture release; do
+            case $unsupported in
+                architecture) stub_command='uname'; value=aarch64; message="requires x86_64" ;;
+                release) stub_command='rpm'; value=43; message="targets Fedora 44" ;;
+            esac
+            printf '#!/bin/sh\necho %s\n' "$value" >"$stub/$stub_command"
+            chmod +x "$stub/$stub_command"
+            out=$(runuser -u tester -- env PATH="$PATH" HW_ROOT="$HW_ROOT" NO_COLOR=1 HOME=/home/tester \
+                bash scripts/fedora-setup.sh --yes </dev/null 2>&1) && rc=0 || rc=$?
+            rm "$stub/$stub_command"
+            if [ "$rc" -ne 1 ] || [[ $out != *"$message"* ]] || [[ $out == *"unexpected sudo call"* ]]; then
+                echo "FAILED: unsupported $unsupported reached setup (exit $rc): $out" >&2; exit 1
+            fi
+        done
+        echo "fedora-setup.sh: rejects unsupported architectures and releases before sudo"
+        rm "$stub/kwriteconfig6"
+        out=$(runuser -u tester -- env PATH="$PATH" HW_ROOT="$HW_ROOT" NO_COLOR=1 HOME=/home/tester \
+            bash scripts/fedora-setup.sh --yes </dev/null 2>&1) && rc=0 || rc=$?
+        if [ "$rc" -ne 1 ] || [[ $out != *"KDE Plasma 6"* ]] || [[ $out == *"unexpected sudo call"* ]]; then
+            echo "FAILED: missing KDE tools reached setup (exit $rc): $out" >&2; exit 1
+        fi
+        echo "fedora-setup.sh: rejects missing KDE tools before sudo"
         ;;
     *) echo "unknown target: $2" >&2; exit 2 ;;
 esac

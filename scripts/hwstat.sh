@@ -20,7 +20,6 @@ cpu_temp() {
     done
 }
 
-# First line of an nvidia-smi query; fails when the driver is not running.
 nvidia_query() {
     local out
     out=$(nvidia-smi --query-gpu="$1" --format=csv,noheader,nounits 2>/dev/null) || return 1
@@ -38,8 +37,7 @@ nvidia_gpu() {
     echo "$out"
 }
 
-# The DRM card with the most VRAM (a discrete AMD card beats its iGPU), else
-# the first card.
+# Prefer the DRM card with the most VRAM, then the first card when VRAM is unavailable.
 drm_device() {
     local card best="" best_vram=-2 vram
     for card in "$HW_ROOT"/sys/class/drm/card[0-9]*; do

@@ -3,7 +3,6 @@
 # on the first boot after a Fedora release upgrade, or whenever something seems off.
 # Changes nothing; exits 1 when a check fails. Notes (→) are worth a look, not failures.
 
-# takes no options: --help (or any argument) prints this header instead of running
 [ $# -eq 0 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; case $1 in -h | --help) exit 0 ;; *) exit 2 ;; esac; }
 
 cd "$(dirname "$0")/.." || exit 2
@@ -23,7 +22,6 @@ pass()    { echo -e "  ${TEAL}✓${RESET} $1"; }
 fail()    { echo -e "  ${RED}✗${RESET} $1"; fails=$((fails + 1)); }
 note()    { echo -e "  ${TEAL}→${RESET} $1"; }
 section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; }
-# pass or fail on a command's exit status
 check() {  # description command...
     local what=$1
     shift
@@ -32,15 +30,18 @@ check() {  # description command...
 zram_active()   { swapon --show=NAME --noheadings | grep -q zram; }
 enforcing()     { [ "$(getenforce)" = Enforcing ]; }
 gamescope_nice() { getcap "$(command -v gamescope)" | grep -q cap_sys_nice; }
-sleep_dir_ok()  { stat -c %C /var/lib/systemd/sleep | grep -q systemd_sleep_var_lib_t; }
 
 FORM_FACTOR=$(hw_form_factor)
 NVIDIA_BRANCH=$(hw_nvidia_driver)
 
 section "System"
 note "Fedora $(rpm -E %fedora), kernel $(uname -r); $(hw_summary)"
-failed=$(systemctl --failed --no-legend --plain | awk '{print $1}' | xargs)
-if [ -z "$failed" ]; then pass "no failed system units"; else fail "failed system units: $failed"; fi
+if failed=$(systemctl --failed --no-legend --plain 2>/dev/null); then
+    failed=$(awk '{print $1}' <<< "$failed" | xargs)
+    if [ -z "$failed" ]; then pass "no failed system units"; else fail "failed system units: $failed"; fi
+else
+    fail "cannot query system units"
+fi
 failed=$(systemctl --user --failed --no-legend --plain 2>/dev/null | awk '{print $1}' | xargs)
 [ -z "$failed" ] || note "failed user units: $failed"
 missing=""
@@ -63,11 +64,15 @@ if [ "$(cat /sys/kernel/sched_ext/state 2>/dev/null)" = enabled ] && [[ -n $want
 else
     fail "sched_ext: no scx_${want:-?} attached (journalctl -u scx_loader; see the SCX section of the README)"
 fi
-profile=$(tuned-adm active 2>/dev/null | sed 's/^Current active profile: //')
-if [ "$FORM_FACTOR" = laptop ] || [ "$profile" = latency-performance ]; then
-    pass "tuned: $profile"
+if profile=$(tuned-adm active 2>/dev/null) && [ -n "$profile" ]; then
+    profile=${profile#Current active profile: }
+    if [ "$FORM_FACTOR" = laptop ] || [ "$profile" = latency-performance ]; then
+        pass "tuned: $profile"
+    else
+        note "tuned: $profile (the desktop setting is latency-performance)"
+    fi
 else
-    note "tuned: $profile (the desktop setting is latency-performance)"
+    fail "tuned has no active profile"
 fi
 
 section "Graphics"
@@ -77,7 +82,12 @@ if [ -n "$NVIDIA_BRANCH" ]; then
     else
         fail "NVIDIA driver not loaded (MOK after a BIOS flash: scripts/mok-reenroll.sh)"
     fi
-    check "NVIDIA keeps video memory over suspend" grep -q 'PreserveVideoMemoryAllocations: 1' /proc/driver/nvidia/params
+    check "NVIDIA keeps video memory over suspend" grep -Eq '^PreserveVideoMemoryAllocations: [12]$' /proc/driver/nvidia/params
+    check "NVIDIA suspend store has room for the video memory" bash system/nvidia-vram-check.sh
+    check "NVIDIA pre-sleep capacity check enabled" systemctl is-enabled -q nvidia-vram-check.service
+    for unit in nvidia-suspend nvidia-hibernate nvidia-suspend-then-hibernate nvidia-resume; do
+        check "$unit enabled" systemctl is-enabled -q "$unit.service"
+    done
 fi
 if command -v gamescope >/dev/null; then
     check "gamescope has CAP_SYS_NICE" gamescope_nice
@@ -85,19 +95,25 @@ fi
 check "/dev/ntsync present" test -e /dev/ntsync
 
 section "Security"
-zone=$(firewall-cmd --get-default-zone 2>/dev/null)
-services=$(firewall-cmd --zone="$zone" --list-services 2>/dev/null)
-if [ "$services" = dhcpv6-client ]; then pass "firewall ($zone): dhcpv6-client only"; else note "firewall ($zone): ${services:-unreadable}"; fi
-check "SELinux enforcing" enforcing
-if [ -e /usr/lib/systemd/system-sleep/kwin-display-fix.sh ]; then
-    check "sleep hook state directory labelled for systemd-sleep" sleep_dir_ok
+if zone=$(firewall-cmd --get-default-zone 2>/dev/null) &&
+    services=$(firewall-cmd --zone="$zone" --list-services 2>/dev/null) &&
+    ports=$(firewall-cmd --zone="$zone" --list-ports 2>/dev/null); then
+    if [ "$services" = dhcpv6-client ] && [ -z "$ports" ]; then
+        pass "firewall ($zone): dhcpv6-client service; no explicit ports"
+    else
+        note "firewall ($zone): services=${services:-none}; ports=${ports:-none}"
+    fi
+else
+    fail "cannot query firewalld"
 fi
+check "SELinux enforcing" enforcing
+check "KDE display sleep service enabled" systemctl is-enabled -q kde-display-sleep.service
 
 section "Deployed files"
 # the same choices apply-system.sh makes: one scx variant, NVIDIA files only with the driver
 skip="scx_loader-laptop.toml"
 [ "$FORM_FACTOR" = laptop ] && skip="scx_loader.toml"
-[ -n "$NVIDIA_BRANCH" ] || skip+=" nvidia-performance.conf nvidia-wayland.conf"
+[ -n "$NVIDIA_BRANCH" ] || skip+=" nvidia-performance.conf nvidia-wayland.conf nvidia-vram-check.sh nvidia-vram-check.service"
 [ -n "$NVIDIA_BRANCH" ] && hw_is_hybrid_gpu && skip+=" nvidia-wayland.conf"
 drift=0
 while read -r src dst; do
@@ -105,8 +121,14 @@ while read -r src dst; do
     if [ ! -e "$dst" ]; then fail "$src not deployed to $dst"; drift=1
     elif ! cmp -s "$src" "$dst"; then fail "$dst differs from $src"; drift=1; fi
 done < <(awk '$1=="sudo" && $2=="cp" {print $3, $4}' scripts/apply-system.sh | sort -u)
-[ "$(cat /etc/rpm/macros.image-language-conf 2>/dev/null)" = "%_install_langs $(hw_install_langs)" ] ||
-    { fail "/etc/rpm/macros.image-language-conf does not match the locales in use"; drift=1; }
+installed_langs=$(sed -n 's/^%_install_langs[[:space:]]\+//p' /etc/rpm/macros.image-language-conf 2>/dev/null)
+IFS=: read -ra expected_langs <<< "$(hw_install_langs)"
+for lang in "${expected_langs[@]}"; do
+    if [[ ":$installed_langs:" != *":$lang:"* ]]; then
+        fail "/etc/rpm/macros.image-language-conf is missing locale $lang"
+        drift=1
+    fi
+done
 if [ "$drift" -eq 0 ]; then pass "every system/ file deployed and unchanged"; else note "bash scripts/apply-system.sh redeploys them"; fi
 rpmnew=$(find /etc \( -name '*.rpmnew' -o -name '*.rpmsave' \) 2>/dev/null | tr '\n' ' ')
 [ -z "$rpmnew" ] || note "package config updates waiting: $rpmnew (for files system/ replaces, re-run apply-system.sh instead)"

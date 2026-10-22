@@ -1,7 +1,5 @@
 # shellcheck shell=bash
-# Hardware detection shared by fedora-setup.sh and apply-system.sh. Source it.
-# Everything is read below $HW_ROOT (empty on a real system), so
-# tests/hw-detect.sh can run it against a fixture tree.
+# HW_ROOT redirects hardware and system configuration reads to a fixture tree.
 
 # One line per display controller: "<vendor> <device> <pci slot>", lowercase hex.
 # 10de is NVIDIA, 1002 AMD, 8086 Intel.
@@ -30,10 +28,7 @@ hw_gpu_count() {
     echo "$n"
 }
 
-# RPM Fusion driver branch for the newest NVIDIA GPU: "current" from Turing
-# (device 0x1e00) on, "580xx" for Maxwell, Pascal and Volta (0x1340-0x1dff),
-# which the driver dropped after 580, and "none" for Kepler and older, which
-# stay on nouveau. Prints nothing when there is no NVIDIA GPU.
+# NVIDIA PCI IDs select current for Turing+, 580xx for Maxwell–Volta, or nouveau for older GPUs.
 hw_nvidia_branch() {
     local vendor device _ newest=-1
     while read -r vendor device _; do
@@ -46,9 +41,7 @@ hw_nvidia_branch() {
     fi
 }
 
-# SMBIOS chassis types 8-11, 14 and 30-32 are portable. When the firmware
-# reports nothing useful, a system battery decides; mice and controllers report
-# their batteries with scope "Device" and do not count.
+# Portable chassis types take priority; only system batteries qualify as a fallback.
 hw_is_laptop() {
     local chassis="" supply type scope
     read -r chassis 2>/dev/null <"$HW_ROOT/sys/class/dmi/id/chassis_type" || true
@@ -66,8 +59,6 @@ hw_is_laptop() {
     return 1
 }
 
-# Refuse a setup.conf value outside the documented set instead of quietly
-# falling back to detection, which would hide a typo until the wrong files land.
 hw_check_conf() {
     case "${FORM_FACTOR:-auto}" in auto|desktop|laptop) ;;
         *) echo "setup.conf: FORM_FACTOR must be auto, desktop or laptop (got '$FORM_FACTOR')" >&2; return 1 ;;
@@ -102,11 +93,7 @@ hw_nvidia_driver() {
     esac
 }
 
-# A GPU layout where the NVIDIA card is not the boot display: an integrated GPU
-# drives the panel next to a discrete NVIDIA one. Decided from the hardware
-# (boot_vga is 0, or absent on a 3D-controller dGPU), not FORM_FACTOR — forcing
-# GLX, GBM and VA-API onto an NVIDIA GPU that is not the display keeps it awake
-# and can break the session.
+# Forcing NVIDIA rendering on a non-boot dGPU keeps it awake and can break hybrid sessions.
 hw_is_hybrid_gpu() {
     local vendor _ slot boot_vga
     [ "$(hw_gpu_count)" -gt 1 ] || return 1
@@ -119,9 +106,8 @@ hw_is_hybrid_gpu() {
     return 1
 }
 
-# Windows shares this machine: its boot manager is in the UEFI boot list, or on
-# the ESP Fedora mounts at /boot/efi (a second disk's ESP is not seen). Under a
-# fixture root the firmware is not consulted, only the tree.
+# Firmware entries and Fedora's mounted ESP reveal Windows; other unmounted ESPs are not inspected.
+# Fixture roots skip firmware access.
 hw_has_windows() {
     if [ -z "$HW_ROOT" ]; then
         efibootmgr 2>/dev/null | grep -q 'Windows Boot Manager' && return 0
@@ -139,7 +125,6 @@ hw_cpu_vendor() {
     esac
 }
 
-# One-line description of what the scripts will adapt to.
 hw_summary() {
     local vendor names="" nvidia
     while read -r vendor _; do
@@ -154,9 +139,7 @@ hw_summary() {
     echo "$(hw_form_factor), $(hw_cpu_vendor) CPU, GPU:${names:- none}${nvidia:+ (NVIDIA driver: $nvidia)}$(hw_has_windows && echo ', Windows dual-boot')"
 }
 
-# RPM %_install_langs value: English plus every locale in use, each as both the
-# full ll_CC and the bare ll form, so dnf keeps those translations instead of
-# stripping everything but English on later operations.
+# Keep persistent system locales even when setup runs with a different SSH or terminal locale.
 hw_install_langs() {
     local lc langs=en_US:en
     while read -r lc; do
@@ -164,6 +147,7 @@ hw_install_langs() {
         case "$lc" in en | en_*) continue ;; esac
         langs="$langs:$lc"
         [ "$lc" = "${lc%%_*}" ] || langs="$langs:${lc%%_*}"
-    done < <(locale 2>/dev/null | sed -n 's/^[A-Z_]*="\{0,1\}\([a-z]\{2,3\}\(_[A-Z]\{2,3\}\)\{0,1\}\).*/\1/p' | sort -u)
+    done < <({ locale 2>/dev/null; cat "$HW_ROOT/etc/locale.conf" 2>/dev/null || true; } |
+        sed -n "s/^\\(LANG\\|LC_[A-Z_]*\\)=[\"']\\{0,1\\}\\([a-z]\\{2,3\\}\\(_[A-Z]\\{2,3\\}\\)\\{0,1\\}\\).*/\\2/p" | sort -u)
     echo "$langs"
 }

@@ -11,7 +11,6 @@ on:
 permissions:
   contents: read
 
-# Superseded runs on the same ref are pointless once a newer commit exists.
 concurrency:
   group: "validate-${{ github.ref }}"
   cancel-in-progress: true
@@ -56,10 +55,16 @@ jobs:
       - name: Validate udev rules
         run: |
           udevadm verify --no-style system/*.rules
+          for f in system/*.rules; do
+            if grep -q 'TAG+="uaccess"' "$f" && [[ $(basename "$f") > 73-seat-late.rules ]]; then
+              echo "uaccess must be assigned before 73-seat-late.rules: $f"
+              exit 1
+            fi
+          done
 
       - name: Check shell scripts are executable-safe
         run: |
-          for f in scripts/*.sh scripts/lib/*.sh tests/*.sh system/kwin-display-fix.sh; do
+          for f in scripts/*.sh scripts/lib/*.sh tests/*.sh system/*.sh; do
             bash -n "$f" && echo "$f: syntax OK" || exit 1
           done
 
@@ -73,6 +78,26 @@ jobs:
 
       - name: Run the hardware detection tests
         run: bash tests/hw-detect.sh
+
+      - name: Run the live verification failure-path tests
+        run: bash tests/verify-setup.sh
+
+      - name: Run the helper script tests
+        run: bash tests/helper-scripts.sh
+
+      - name: Run the user configuration backup tests
+        run: bash tests/setup-configs.sh
+
+      - name: Run the sleep lifecycle and NVIDIA storage tests
+        run: |
+          bash tests/sleep-hooks.sh
+          bash tests/nvidia-vram.sh
+
+      - name: Run the emulation installation safety tests
+        run: bash tests/emulation-setup.sh
+
+      - name: Run the pre-install restore-point tests
+        run: bash tests/setup-restore.sh
 
       - name: Run the deploy steps on a fresh Fedora
         run: bash tests/fresh-install.sh

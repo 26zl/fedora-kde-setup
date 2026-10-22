@@ -1,14 +1,10 @@
 #!/bin/bash
-# Disk cleanup — trims snapper's snapshot timeline, then drops the caches that grow unnoticed: unused
-# flatpak runtimes, PackageKit's and dnf's package caches, docker's unused images and build cache
-# (volumes stay) and the calling user's unused podman images. Lists the snapshots and asks before
-# deleting any; the rest is cache. Waits for btrfs to release the deleted snapshots, minutes after a
-# big trim; old timeline snapshots can pin hundreds of GB of deleted data.
-# Keeps on /: every number-cleanup snapshot plus 5 hourly, 7 daily, 2 weekly and 1 monthly timeline
-# ones; /home keeps no timeline snapshots (its timeline is off, fedora-setup.sh sets that).
-# Usage:  sudo bash scripts/disk-cleanup.sh [--yes]   (--yes trims the snapshots without asking)
+# Trim snapper timelines and remove unused runtimes, package caches and container images.
+# Keeps number snapshots; / keeps 5 hourly, 7 daily, 2 weekly and 1 monthly timeline snapshots.
+# /home keeps no timeline snapshots; containers and volumes are preserved.
+# Also lists the pre-setup restore points and removes them after an interactive confirmation.
+# Usage: sudo bash scripts/disk-cleanup.sh [--yes] (--yes confirms the snapshot trim only).
 
-# --yes skips the confirmation; --help (or any other argument) prints this header instead of running
 YES=0
 [ $# -le 1 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 2; }
 case ${1-} in
@@ -40,7 +36,7 @@ if command -v snapper >/dev/null && snapper list-configs 2>/dev/null | grep -q '
         snapper -c "$c" list --columns number,date,used-space,cleanup,description | sed 's/^/    /'
     done
     echo "  / keeps its number snapshots and the newest 5 hourly, 7 daily, 2 weekly and 1 monthly timeline ones;"
-    echo "  /home keeps no timeline snapshots. Everything else is deleted."
+    echo "  /home keeps no timeline snapshots. Other snapshot cleanup types are preserved."
     if [ "$YES" -eq 1 ]; then ans=y; else read -r -p "  Apply and delete? [y/N] " ans || ans=""; fi
     case $ans in
     y | Y)
@@ -65,6 +61,36 @@ else
     warn "no snapper config for / — snapshots skipped"
 fi
 
+section "Pre-setup restore points"
+if [ -d /.fedora-kde-setup-backups ]; then
+    for run in /.fedora-kde-setup-backups/run-*; do
+        [ -d "$run" ] || continue
+        # -x keeps du out of the root and home snapshots, which are subvolumes of their own
+        echo "  $run: $(du -shx "$run" 2>/dev/null | cut -f1) of archives$([ -e "$run/READY" ] || echo ', incomplete')"
+    done
+    if [ "$YES" -eq 1 ]; then
+        warn "restore points are only deleted after an interactive confirmation"
+        ans=n
+    else
+        read -r -p "  Delete these restore points, snapshots included? [y/N] " ans || ans=""
+    fi
+    case $ans in
+    y | Y)
+        for run in /.fedora-kde-setup-backups/run-*; do
+            [ -d "$run" ] || continue
+            for snap in "$run/root" "$run/home"; do
+                [ -d "$snap" ] && btrfs subvolume delete "$snap" >/dev/null
+            done
+            rm -rf "$run"
+        done
+        ok "pre-setup restore points removed"
+        ;;
+    *) warn "restore points left as they are" ;;
+    esac
+else
+    echo "  none"
+fi
+
 section "Caches"
 if command -v flatpak >/dev/null; then
     if flatpak uninstall --unused -y --system --noninteractive >/dev/null 2>&1; then
@@ -80,13 +106,22 @@ if [ -d /var/cache/PackageKit ]; then
 fi
 dnf clean packages -q >/dev/null 2>&1 && ok "dnf package cache cleared"
 if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
-    images=$(docker image prune -af 2>/dev/null | tail -1)
-    build=$(docker builder prune -af 2>/dev/null | tail -1)
-    ok "docker: unused images (${images#Total reclaimed space: }) and build cache (${build#Total: }) removed, volumes kept"
+    if images=$(docker image prune -af 2>&1); then
+        images=${images##*$'\n'}
+        ok "docker: unused images (${images#Total reclaimed space: }) removed, containers and volumes kept"
+    else
+        warn "docker: image cleanup failed"
+    fi
+    if build=$(docker builder prune -af 2>&1); then
+        build=${build##*$'\n'}
+        ok "docker: build cache (${build#Total: }) removed"
+    else
+        warn "docker: build cache cleanup failed"
+    fi
 fi
 if [ -n "${SUDO_USER:-}" ] && command -v podman >/dev/null; then
     uid=$(id -u "$SUDO_USER")
-    if sudo -u "$SUDO_USER" -H env XDG_RUNTIME_DIR="/run/user/$uid" podman system prune -af >/dev/null 2>&1; then
+    if sudo -u "$SUDO_USER" -H env XDG_RUNTIME_DIR="/run/user/$uid" podman image prune -af >/dev/null 2>&1; then
         ok "podman: unused images of $SUDO_USER removed"
     else
         warn "podman: prune failed for $SUDO_USER"
@@ -94,7 +129,7 @@ if [ -n "${SUDO_USER:-}" ] && command -v podman >/dev/null; then
 fi
 
 section "Result"
-# a deleted snapshot gives its space back only once btrfs has dropped the subvolume
+# Deleted snapshots release space only after btrfs drops the subvolume.
 [ "$(findmnt -no FSTYPE /)" = btrfs ] && { btrfs subvolume sync / >/dev/null 2>&1 || true; }
 after=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')
 ok "free on /: ${before}G -> ${after}G"

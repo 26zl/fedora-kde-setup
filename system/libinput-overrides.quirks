@@ -1,6 +1,4 @@
-# Hall-effect switches do not bounce, so libinput's debouncing only delays fast
-# clicks. Matched on the USB vendor IDs of LAMZU mice and their Compx dongles;
-# every other mouse keeps the default debouncing.
+# Disable debouncing only for LAMZU and Compx USB mice with non-bouncing switches.
 [LAMZU Compx dongles]
 MatchUdevType=mouse
 MatchBus=usb

@@ -9,12 +9,20 @@ SECURITY.md).
 ```bash
 shellcheck scripts/*.sh scripts/lib/*.sh tests/*.sh system/*.sh   # CI lints at severity warning
 bash tests/hw-detect.sh                                            # detection fixtures, no root needed
+bash tests/verify-setup.sh                                         # verification command stubs, no root needed
+bash tests/helper-scripts.sh                                       # maintenance command stubs, no root needed
+bash tests/setup-configs.sh                                        # user config backups and repeat installs, no root needed
+bash tests/sleep-hooks.sh                                          # KDE sleep lifecycle with fixture sessions
+bash tests/nvidia-vram.sh                                          # NVIDIA backing-store capacity and failure paths
+bash tests/emulation-setup.sh                                      # pinned downloads and emulator selection
+bash tests/setup-restore.sh                                        # pre-install snapshots and boot archive integrity
 bash tests/fresh-install.sh                                        # deploy steps in throwaway containers (podman or docker)
 ```
 
-CI also resolves every package and Flatpak the scripts install (`tests/check-packages.sh`,
-in a Fedora container), checks that every `system/` file is deployed by `apply-system.sh`,
-and runs every script with `--help`.
+CI also resolves the literal RPM package names and Flatpak IDs the scripts install
+(`tests/check-packages.sh`, as root in a throwaway Fedora container), checks that every
+`system/` file is deployed by `apply-system.sh`, and runs every script with `--help`.
+Dynamic language-pack names and full dependency transactions need a fresh-machine install.
 
 ## Conventions
 

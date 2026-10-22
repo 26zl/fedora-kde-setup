@@ -1,27 +1,20 @@
-# zoxide — smart cd
 eval "$(zoxide init bash)"
 
-# lazygit
 alias lg='lazygit'
 
-# eza — colored ls with icons
 alias ls='eza --icons --group-directories-first --color=always'
 alias ll='eza --icons --group-directories-first --color=always -lh --git'
 alias la='eza --icons --group-directories-first --color=always -lha --git'
 alias tree='eza --icons --tree --color=always'
 
-# bat — syntax-highlighted cat
 alias cat='bat --pager=never'
 export MANPAGER="sh -c 'col -bx | bat -l man -p'"
 
-# grep with color
 alias grep='grep --color=auto'
 alias diff='diff --color=auto'
 
-# delta — syntax-highlighted git diffs
 export GIT_PAGER='delta'
 
-# yazi — cd into directory on exit
 ya() {
   local tmp cwd
   tmp="$(mktemp -t "yazi-cwd.XXXXXX")"
@@ -32,10 +25,8 @@ ya() {
   rm -f -- "$tmp"
 }
 
-# Homebrew (only if installed)
 [ -x /home/linuxbrew/.linuxbrew/bin/brew ] && eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv bash)"
 
-# mise — runtime version manager
 command -v mise >/dev/null && eval "$(mise activate bash)"
 
 # Gamescope at the primary monitor's current mode, RT scheduling, async flips, MangoApp overlay
@@ -45,9 +36,7 @@ gcs2() {
   gamescope -W "$w" -H "$h" -r "$r" --rt --immediate-flips --mangoapp -e -- "$@"
 }
 
-# scripts
 alias rice="$HOME/scripts/rice-start.sh"
 alias sysinfo="$HOME/scripts/sysinfo.sh"
 
-# Starship prompt
 eval "$(starship init bash)"
