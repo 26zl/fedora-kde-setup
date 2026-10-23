@@ -36,13 +36,13 @@ SUBSYSTEM=="usb", ATTRS{idVendor}=="373e", ATTRS{idProduct}=="001c", TAG+="uacce
 KERNEL=="hidraw*", ATTRS{idVendor}=="373e", ATTRS{idProduct}=="001e", TAG+="uaccess"
 KERNEL=="hidraw*", ATTRS{idVendor}=="373e", ATTRS{idProduct}=="001c", TAG+="uaccess"
 
-#Lamzu INCA 8K Receiver - Dongle
+# LAMZU INCA 8K Receiver - Dongle
 SUBSYSTEM=="input", ATTRS{id/vendor}=="37b0", ATTRS{name}=="LAMZU LAMZU INCA 8K Receiver", TAG+="uaccess"
 SUBSYSTEM=="input", ATTRS{name}=="LAMZU LAMZU INCA 8K Receiver Consumer Control", TAG+="uaccess"
 SUBSYSTEM=="input", ATTRS{name}=="LAMZU LAMZU INCA 8K Receiver System Control", TAG+="uaccess"
 SUBSYSTEM=="input", ATTRS{name}=="LAMZU LAMZU INCA 8K Receiver Keyboard", TAG+="uaccess"
 
-#Lamzu INCA 8K Receiver USB device rules
+# LAMZU INCA 8K Receiver USB device rules
 SUBSYSTEM=="usb", ATTRS{idVendor}=="37b0", ATTRS{idProduct}=="0010", TAG+="uaccess"
 KERNEL=="hidraw*", ATTRS{idVendor}=="37b0", ATTRS{idProduct}=="0010", TAG+="uaccess"
 

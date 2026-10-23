@@ -84,7 +84,7 @@ fi
 cat >"$stub/ollama" <<'STUB'
 #!/bin/bash
 case "$1" in
-    --version) echo 'ollama version is 0.40.8' ;;
+    --version) echo 'ollama version is 0.40.10' ;;
     list|ps) echo 'gemma4-12b-heretic 100%/GPU' ;;
     show) [ "${CAP:-yes}" = yes ] && echo 'PARAMETER num_gpu 30'; exit 0 ;;
     stop) exit 0 ;;

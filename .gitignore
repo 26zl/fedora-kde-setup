@@ -42,18 +42,9 @@ $RECYCLE.BIN/
 *.orig
 *.pid
 
-# Build artifacts
-*.o
-*.obj
-*.elf
-
 # Per-machine overrides (setup.conf.example is the template)
 setup.conf
 
 # Local tool configuration
 CLAUDE.md
 .claude/
-
-# Dependencies
-node_modules/
-vendor/

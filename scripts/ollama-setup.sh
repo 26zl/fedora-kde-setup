@@ -25,8 +25,8 @@ warn()    { echo -e "  ${RED}!${RESET} $1"; }
 section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; }
 
 # Update both values from the release's sha256sum.txt (./ollama-linux-amd64.tar.zst).
-OLLAMA_VERSION=v0.40.8
-OLLAMA_SHA256=0bb17cc19e9c1339ddbe0cba55148bf068f8f19dec8ec5fd531461aaa207282a
+OLLAMA_VERSION=v0.40.10
+OLLAMA_SHA256=1e8ad2d2a394efdd235bee74deec237badd95142ffba77588140ab2a9ecec227
 SRC=hf.co/llmfan46/gemma-4-12B-it-uncensored-heretic-GGUF:Q4_K_M
 # The model digest guards against changes to the mutable Hugging Face tag.
 MODEL_SHA256=0930ee39b491bfef38c2d8d843576672648b2b0460ff8bd2870a35d4f50e6735

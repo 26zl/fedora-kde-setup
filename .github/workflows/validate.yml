@@ -27,10 +27,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Check no plaintext passwords or IPs in configs
+      - name: Check no hardcoded private IPs in configs
         run: |
-          echo "Checking for sensitive patterns..."
-          # Fail if any private IPv4 ranges hardcoded (except localhost)
           if grep -rE '(192\.168\.[0-9]+\.[0-9]+|10\.[0-9]+\.[0-9]+\.[0-9]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+)' \
             --include="*.conf" --include="*.toml" --include="*.sh" --include="*.desktop" .; then
             echo "WARNING: Hardcoded private IP found — remove before committing"

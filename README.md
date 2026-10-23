@@ -43,6 +43,7 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 ## Repository Structure
 
 ```text
+├── .github/                    # CI workflows (shellcheck, validate, gitleaks, trivy), Dependabot, PR template
 ├── configs/
 │   ├── conky/conky.conf        # Desktop system stats widget
 │   ├── fastfetch/config.jsonc  # fastfetch module layout
@@ -253,7 +254,9 @@ filling the RAM is refused with a message instead of failing halfway. Inspect re
 with `journalctl -u nvidia-vram-check.service`.
 
 `kde-display-sleep.service` captures enabled, connected external displays before
-`sleep.target` and restores only that recorded set after user sessions thaw. It never
+`sleep.target` and restores only that recorded set after user sessions thaw. It only acts
+with the amdgpu module loaded, whose DisplayPort link re-training on resume is what
+disconnects a monitor; on other hardware it exits at once. It never
 enables laptop panels or displays that were disabled before sleep, and ignores captures
 from another session. The USB-only hook runs inside the frozen interval. Both are
 deployed by `apply-system.sh`; the display service is enabled without starting it during
@@ -442,7 +445,7 @@ sudo systemctl enable --now snapper-timeline.timer snapper-cleanup.timer
 
 > Note: Fedora often pre-configures snapper. If `create-config` returns "subvolume already covered", skip it and go straight to creating a snapshot.
 
-`/home` changes constantly, so its hourly timeline snapshots are what fill the disk; it keeps only manual and number-cleanup snapshots, and `/` carries the timeline. The number cleanup needs a btrfs qgroup to weigh how much space snapshots pin, which `setup-quota` creates. Snapper's defaults keep 10 hourly, 10 daily, 10 monthly and 10 yearly timeline snapshots, and `TIMELINE_CREATE=no` does not delete the ones already made: on 2026-10-21 snapshots pinned 280 GB of deleted data on a 412 GB root whose live data was 104 GB, most of it in home snapshots from before the timeline was turned off. `/` therefore keeps 5 hourly, 7 daily, 2 weekly and 1 monthly, `/home` keeps none, and `scripts/disk-cleanup.sh` applies the limits and removes the rest.
+`/home` changes constantly, so its hourly timeline snapshots are what fill the disk; it keeps only manual and number-cleanup snapshots, and `/` carries the timeline. The number cleanup needs a btrfs qgroup to weigh how much space snapshots pin, which `setup-quota` creates. Snapper's defaults keep 10 hourly, 10 daily, 10 monthly and 10 yearly timeline snapshots, and `TIMELINE_CREATE=no` does not delete the ones already made, so leftover home snapshots can pin hundreds of GB of deleted data. `/` therefore keeps 5 hourly, 7 daily, 2 weekly and 1 monthly, `/home` keeps none, and `scripts/disk-cleanup.sh` applies the limits and removes the rest.
 
 **BTRFS Assistant** (GUI) is available in the app menu — shows all snapshots and allows one-click restore.
 
@@ -487,6 +490,7 @@ systemctl --user mask --now \
   app-org.kde.kalendarac@autostart.service \
   app-sealertauto@autostart.service \
   app-org.freedesktop.problems.applet@autostart.service \
+  'app-imsettings\x2dstart@autostart.service' \
   app-vboxclient@autostart.service
 
 # Akonadi (KDE PIM — only needed if using KMail/Kontact). It pulls in ~16 processes
@@ -496,7 +500,7 @@ systemctl --user mask --now akonadi_control.service
 
 Undo any of these with `systemctl --user unmask <unit>`.
 
-`kalendarac` is the one that matters: with Akonadi masked it starts, fails to reach it, and dies with `malloc(): unaligned tcache chunk detected` — several hundred stack-trace lines in `journalctl -b -p err` every boot. `app-vboxclient` comes from `virtualbox-guest-additions`, which belongs inside a VM, not on the host.
+`kalendarac` is the one that matters: with Akonadi masked it starts, fails to reach it, and dies with `malloc(): unaligned tcache chunk detected` — several hundred stack-trace lines in `journalctl -b -p err` every boot. `app-vboxclient` comes from `virtualbox-guest-additions`, which belongs inside a VM, not on the host. `imsettings-start` fails every login with `Current desktop isn't supported by IMSettings`; systemd escapes the hyphen in its unit name as `\x2d`.
 
 ### 15. libinput Debouncing
 
@@ -795,7 +799,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now conky.service
 ```
 
-The config builds its hardware rows when Conky starts. It shows one row per four CPU cores (up to 16), GPU lines for whatever `~/scripts/hwstat.sh` can read, and a line per disk mounted under `/mnt`. It adapts to the machine without edits.
+The config builds its hardware rows when Conky starts. It shows one row per four CPU cores (up to 16), GPU lines for whatever `~/scripts/hwstat.sh` can read, and a line per disk mounted under `/mnt`. It sits on the second screen when KWin reports more than one enabled output, otherwise on the only one, and adapts to the machine without edits.
 
 ---
 
@@ -914,7 +918,7 @@ bash scripts/emulation-setup.sh
 | Wii | Dolphin | Flatpak |
 | Frontend | ES-DE (EmulationStation Desktop Edition) | Terra repo |
 
-`fedora-setup.sh` adds Terra and limits it with `includepkgs` to `terra-release`, `terra-gpg-keys`, `starship` and `emulationstation-de`; unrestricted, its steam, scx-scheds and lact builds would shadow the RPM Fusion and COPR ones. `emulation-setup.sh` stops if Terra is missing. Terra builds ES-DE for a new Fedora release some time after it ships (a week before Fedora 45's release it had none); until then the script skips ES-DE with a warning and installs the emulators, and the AppImage from [es-de.org](https://es-de.org/) works in the meantime.
+`fedora-setup.sh` adds Terra and limits it with `includepkgs` to `terra-release`, `terra-gpg-keys`, `starship` and `emulationstation-de`; unrestricted, its steam, scx-scheds and lact builds would shadow the RPM Fusion and COPR ones. `emulation-setup.sh` stops if Terra is missing. Terra builds ES-DE for a new Fedora release some time after it ships; until then the script skips ES-DE with a warning and installs the emulators, and the AppImage from [es-de.org](https://es-de.org/) works in the meantime.
 
 ### Default emulators (standalone, not libretro)
 
@@ -1185,6 +1189,7 @@ What Fedora 45 changes for this setup (from its [ChangeSet](https://fedoraprojec
 | Kvantum | [github.com/tsujan/Kvantum](https://github.com/tsujan/Kvantum) |
 | Layan KDE | [github.com/vinceliuice/Layan-kde](https://github.com/vinceliuice/Layan-kde) |
 | Panel Colorizer | [github.com/luisbocanegra/plasma-panel-colorizer](https://github.com/luisbocanegra/plasma-panel-colorizer) |
+| Wallpaper | Made for this repo, no third-party source; covered by the MIT license like the rest of it |
 
 ### Gaming
 

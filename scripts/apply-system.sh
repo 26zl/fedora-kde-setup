@@ -154,7 +154,8 @@ retire system/70-lamzu.rules /etc/udev/rules.d/99-lamzu.rules
 sudo cp system/70-lamzu.rules /etc/udev/rules.d/70-lamzu.rules
 sudo cp system/99-disable-wakeup.rules /etc/udev/rules.d/99-disable-wakeup.rules
 sudo cp system/99-dualsense.rules /etc/udev/rules.d/99-dualsense.rules
-sudo udevadm control --reload-rules && sudo udevadm trigger
+# only the subsystems the three rule files match, not every device on a running desktop
+sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=usb --subsystem-match=input --subsystem-match=hidraw
 ok "70-lamzu.rules, 99-disable-wakeup.rules, 99-dualsense.rules"
 
 section "Suspend / resume"
@@ -169,6 +170,7 @@ sudo cp system/usb-autosuspend.service /etc/systemd/system/usb-autosuspend.servi
 sudo systemctl daemon-reload
 sudo systemctl enable kde-display-sleep.service
 sudo systemctl enable --now usb-autosuspend.service
+command -v jq >/dev/null || warn "jq is missing: kde-display-sleep.sh needs it (sudo dnf install jq)"
 ok "USB sleep hook, KDE display sleep service and USB autosuspend service"
 
 section "DNS hardening"

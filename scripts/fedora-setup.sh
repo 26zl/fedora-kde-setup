@@ -77,7 +77,7 @@ echo "   - add RPM Fusion, three scoped COPRs and Terra, and install the gaming,
 [ -n "$NVIDIA_BRANCH" ] && echo "   - install the NVIDIA driver ($NVIDIA_BRANCH branch)"
 echo "   - set up snapper snapshots on a btrfs root, then deploy the system/ files through apply-system.sh"
 echo "     (kernel arguments, sysctl, modprobe, udev, systemd units and drop-ins)"
-echo "   - trim default firewall services and ports, remove kde-connect, disable cups, abrt and gssproxy, enable auditd"
+echo "   - trim default firewall services and ports (ssh included), remove kde-connect, disable cups, abrt and gssproxy, enable auditd"
 echo "   - set the RTC to UTC$(hw_has_windows && echo ' and make GRUB remember the last-booted OS')"
 echo "   - write the KDE, kitty, fish, starship and conky configs (existing files kept as numbered backups) and edit ~/.bashrc"
 confirm
@@ -443,6 +443,8 @@ chmod +x ~/scripts/{rice-start,sysinfo,hwstat,deep-health,mok-reenroll,disk-clea
 ok "Scripts installed to ~/scripts/"
 
 # ble.sh requires --noattach before other shell setup and ble-attach after it.
+# sed cannot prepend to a missing or empty file, so make sure it has a first line
+[ -s ~/.bashrc ] || echo '# ~/.bashrc' >>~/.bashrc
 if ! grep -q 'blesh/ble.sh' ~/.bashrc; then
     [ -e ~/.bashrc.orig ] || cp ~/.bashrc ~/.bashrc.orig
     sed -i '1s|^|# >>> fedora-kde-setup: ble.sh must load before anything else >>>\n[[ $- == *i* ]] \&\& source ~/.local/share/blesh/ble.sh --noattach\n# <<< fedora-kde-setup <<<\n\n|' ~/.bashrc
