@@ -496,6 +496,11 @@ systemctl --user mask --now \
 # Akonadi (KDE PIM — only needed if using KMail/Kontact). It pulls in ~16 processes
 # and its own MariaDB. Same reason: mask, not disable.
 systemctl --user mask --now akonadi_control.service
+
+# DrKonqi's crash pickup: KDE's own unit stops it after 30 minutes (RuntimeMaxSec), which
+# systemd records as a failed unit at every login. Crashes while logged in still get their
+# dialog through drkonqi-coredump-launcher.socket; only crashes from before login go unseen.
+systemctl --user mask --now drkonqi-coredump-pickup.service
 ```
 
 Undo any of these with `systemctl --user unmask <unit>`.
@@ -965,9 +970,10 @@ Check saves before uninstalling the old Flatpak, and keep its data by omitting
 bash scripts/strata-setup.sh
 ```
 
-Strata compiles its engine on Linux (the pinned v0.1.40.1 has Windows-only release assets; 0.2 added Linux AppImages, not adopted yet), so the script adds NVIDIA's CUDA repo for `cuda-toolkit-13-4`, with NVIDIA's own driver packages excluded as [RPM Fusion recommends](https://rpmfusion.org/Howto/CUDA): they replace RPM Fusion's driver or collide with its files, and the next driver update then fails. It clones Strata pinned to v0.1.40.1 into `~/Prosjekter/Strata` and puts the model files on `/mnt/data/Strata-data` — not under `/home`, which snapper snapshots. `STRATA_DIR` and `STRATA_DATA` override both paths. An existing checkout must match the pinned commit and have no tracked edits.
+Strata 0.2 is a desktop app, a Terminal and an engine, with Linux AppImages and ready-made engines; the ready-made engine is checked only against a hash fetched from the same GitHub release, so the script keeps compiling the engine from the pinned commit (`--build`) and adds NVIDIA's CUDA repo for `cuda-toolkit-13-4`, with NVIDIA's own driver packages excluded as [RPM Fusion recommends](https://rpmfusion.org/Howto/CUDA): they replace RPM Fusion's driver or collide with its files, and the next driver update then fails. It clones Strata pinned to v0.2.3.1 into `~/Prosjekter/Strata` and puts the model files on `/mnt/data/Strata-data` — not under `/home`, which snapper snapshots. `STRATA_DIR` and `STRATA_DATA` override both paths. An existing checkout must match the pinned commit and have no tracked edits; move an older one with `git fetch`, `git merge --ff-only <commit>` and `rm -rf build` in it first; a build folder left from the old source makes the compile a no-op and setup stops.
 
 - **Model by RAM**: under 40 GiB the Coder (IQ1_M, half the experts — strong at code, answers Norwegian prompts mostly in English); otherwise the full model at the size Strata recommends.
+- **Text only**: `--vision no --images no` keep 0.2's picture reader and image model off, so the Coder stays a text model with nothing new in VRAM; `./setup.sh --setup` in the checkout turns them on.
 - **`--vram-reserve-mib 3072`**: the card also drives the desktop. With Strata's default 700 MiB reserve the lock screen could not allocate framebuffers on wake (`kscreenlocker_greet: eglSwapBuffers failed with 0x3003`, `nvidia-drm: Failed to allocate NVKMS memory for GEM object`) and froze. The bigger reserve costs about 20% decode speed (85 → 68 tokens/s on code).
 - **`--experimental-speed-projection on`**: despite the name, Strata's refusal-direction vector, projected out of layers 4–44 at run time, so the model answers instead of refusing. On the Coder it refuses 4 of 146 AdvBench and JailbreakBench prompts, against 143 without it; Strata measures a mean KL of 0.063 to the stock model and 0.2–0.4% less speed. A request with `"experimental_speed_projection": false` gets the stock model.
 - **Idle unload**: `"idle_unload_s": 600` in `strata-coder-iq1_m.json` ends the engine after 10 minutes without requests, so its RAM and VRAM go back; the next request loads it again in seconds while the files are still in the page cache.

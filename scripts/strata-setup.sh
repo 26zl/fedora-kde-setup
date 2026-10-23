@@ -21,7 +21,7 @@ ok()      { echo -e "  ${TEAL}✓${RESET} $1"; }
 warn()    { echo -e "  ${RED}!${RESET} $1"; }
 section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; }
 
-STRATA_REV=82f46a8c8f475f001ad76d92f58f4a4f8ffb0253  # v0.1.40.1
+STRATA_REV=7ddc17a38fe7f31637e895ecfba58c2cd43d65ec  # v0.2.3.1
 STRATA_DIR=${STRATA_DIR:-$HOME/Prosjekter/Strata}
 # not under /home: snapper would keep the model files in every snapshot
 STRATA_DATA=${STRATA_DATA:-/mnt/data/Strata-data}
@@ -37,8 +37,9 @@ mkdir -p "$STRATA_DATA" 2>/dev/null ||
     { warn "Cannot create $STRATA_DATA — mount the data disk or set STRATA_DATA"; exit 1; }
 
 section "CUDA toolkit"
-# Strata compiles its engine on Linux (its release assets are Windows-only). NVIDIA's repo
-# lags Fedora releases and its packages carry no dist tag, so fedora44 keeps working after an upgrade
+# The engine is compiled from the pinned commit (--build below): 0.2's ready-made engines are checked
+# only against a hash from the same GitHub release. NVIDIA's repo lags Fedora releases and its
+# packages carry no dist tag, so fedora44 keeps working after an upgrade
 [ -f /etc/yum.repos.d/cuda-fedora44.repo ] ||
     sudo dnf config-manager addrepo \
         --from-repofile=https://developer.download.nvidia.com/compute/cuda/repos/fedora44/x86_64/cuda-fedora44.repo
@@ -61,8 +62,9 @@ section "Model and engine"
 family=qwen
 [ "$(awk '/MemTotal/{print int($2/1048576)}' /proc/meminfo)" -lt 40 ] && family=coder
 # Reserve VRAM for the desktop; experimental speed projection applies the refusal-direction vector.
+# --build compiles the pinned source instead of fetching a ready-made engine; pictures stay off (text-only Coder).
 "$STRATA_DIR/setup.sh" --yes --family "$family" --no-start --data-dir "$STRATA_DATA" \
-    --vram-reserve-mib 3072 --experimental-speed-projection on
+    --vram-reserve-mib 3072 --experimental-speed-projection on --vision no --images no --build
 if [ "$family" = coder ]; then
     # Keep desktop RAM available and unload the engine after ten idle minutes.
     command -v uvx >/dev/null || warn "uvx not found: the chat gets no web search (install uv)"
