@@ -2,7 +2,6 @@
 # GitHub CLI + git authentication. Run as regular user (NO sudo):
 #   bash scripts/setup-github.sh
 
-# takes no options: --help (or any argument) prints this header instead of running
 [ $# -eq 0 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; case $1 in -h | --help) exit 0 ;; *) exit 2 ;; esac; }
 
 set -e
@@ -41,8 +40,7 @@ gh auth setup-git
 ok "git wired to gh credential helper"
 
 section "git identity"
-# Derive the global git identity from the GitHub account; fall back to the
-# privacy-preserving noreply address when the account email is hidden.
+# Hidden account email falls back to GitHub's privacy-preserving noreply address.
 login="$(gh api user --jq .login)"
 id="$(gh api user --jq .id)"
 email="$(gh api user --jq '.email // empty')"

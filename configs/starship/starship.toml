@@ -1,8 +1,8 @@
-# Starship — Darth Vader theme (teal + red on black)
 format = """
 [╭─](bold color:#00c8a8)\
 $os\
 $username\
+$hostname\
 $directory\
 $git_branch\
 $git_status\
@@ -26,7 +26,11 @@ Windows = ""
 
 [username]
 show_always = true
-format      = '[$user](bold color:#b0bec5)[@](color:#cc2222)[$hostname](bold color:#b0bec5) '
+format      = '[$user](bold color:#b0bec5)[@](color:#cc2222)'
+
+[hostname]
+ssh_only = false
+format = '[$hostname](bold color:#b0bec5) '
 
 [directory]
 format            = '[ $path](bold color:#1de9b6) '

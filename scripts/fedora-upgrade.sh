@@ -3,10 +3,17 @@
 # release, checks the machine, takes a snapper snapshot of / and downloads the
 # upgrade; it does not reboot. Start the upgrade with `sudo dnf system-upgrade reboot`
 # and run scripts/verify-setup.sh on the first boot of the new release.
-# Run as regular user — sudo is called where needed
+# Run as regular user — sudo is called where needed; --yes answers the --allowerasing
+# question with yes
 
-# takes no options: --help (or any argument) prints this header instead of running
-[ $# -eq 0 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; case $1 in -h | --help) exit 0 ;; *) exit 2 ;; esac; }
+YES=0
+[ $# -le 1 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 2; }
+case ${1-} in
+    "") ;;
+    --yes) YES=1 ;;
+    -h | --help) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    *) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 2 ;;
+esac
 
 set -e
 [ "$EUID" -ne 0 ] || {
@@ -34,8 +41,7 @@ current=$(rpm -E %fedora)
 target=$((current + 1))
 
 section "Fedora $current -> $target"
-# the release directory goes live on the mirrors on release day; before that the
-# upgrade would install the pre-release
+# Require the final release directory to avoid a pre-release upgrade.
 status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
     "https://dl.fedoraproject.org/pub/fedora/linux/releases/$target/") || true
 case "$status" in
@@ -61,20 +67,32 @@ boot_free=$(df --output=avail -BM /boot | tail -n 1 | tr -dc 0-9)
 [ "$boot_free" -ge 200 ] || { warn "only ${boot_free}M free on /boot, free at least 200M first"; exit 1; }
 ok "free space: / ${root_free}G, /boot ${boot_free}M"
 if [ -n "$(hw_nvidia_driver)" ]; then
+    if ! SB=$(LC_ALL=C mokutil --sb-state 2>/dev/null); then
+        warn "cannot determine Secure Boot state; verify it before upgrading"
+        exit 1
+    fi
+    case "$SB" in
+        *"SecureBoot enabled"*|*"SecureBoot disabled"*) ;;
+        *) warn "unknown Secure Boot state; verify it before upgrading"; exit 1 ;;
+    esac
     [ -r /proc/driver/nvidia/version ] || { warn "the NVIDIA driver is not loaded now; fix that before upgrading"; exit 1; }
     # akmods builds the module for the new kernel; under Secure Boot it only loads
     # when the akmods key is enrolled
-    if mokutil --sb-state 2>/dev/null | grep -q 'SecureBoot enabled'; then
-        sudo mokutil --test-key /etc/pki/akmods/certs/public_key.der 2>/dev/null | grep -q 'already enrolled' ||
+    if [[ $SB == *"SecureBoot enabled"* ]]; then
+        LC_ALL=C sudo mokutil --test-key /etc/pki/akmods/certs/public_key.der 2>/dev/null | grep -q 'already enrolled' ||
             { warn "akmods key not enrolled: run scripts/mok-reenroll.sh first"; exit 1; }
     fi
-    ok "NVIDIA driver loaded$(mokutil --sb-state 2>/dev/null | grep -q 'SecureBoot enabled' && echo ', akmods key enrolled')"
+    ok "NVIDIA driver loaded$([[ $SB == *"SecureBoot enabled"* ]] && echo ', akmods key enrolled')"
 fi
-failed=$(systemctl --failed --no-legend --plain | awk '{print $1}' | xargs)
-if [ -n "$failed" ]; then
-    warn "already failed before the upgrade (compare afterwards): $failed"
+if units=$(systemctl --failed --no-legend --plain); then
+    failed=$(printf '%s\n' "$units" | awk '{print $1}' | xargs)
+    if [ -n "$failed" ]; then
+        warn "already failed before the upgrade (compare afterwards): $failed"
+    else
+        ok "no failed units"
+    fi
 else
-    ok "no failed units"
+    warn "cannot read failed systemd units; compare their state manually after upgrading"
 fi
 
 section "Restore point"
@@ -88,8 +106,7 @@ fi
 section "Download"
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT
-# Resolve first: a package built against libraries the new release replaced stops the
-# upgrade, and only then is removing it offered. dnf lists every removal before it asks.
+# Offer --allowerasing only after dependency resolution fails; dnf previews removals.
 echo "  resolving the Fedora $target transaction (fetches its metadata first)..."
 # shellcheck disable=SC2024  # the log is this user's own temp file
 sudo dnf system-upgrade download --releasever="$target" --assumeno >"$log" 2>&1 || true
@@ -98,7 +115,7 @@ if grep -q 'Failed to resolve the transaction' "$log"; then
     grep -oE 'installed package [^ ]+' "$log" | sort -u | sed 's/^installed package /  blocked by: /'
     warn "these have no build for Fedora $target yet; --allowerasing removes them,"
     warn "and they can be reinstalled once their repository catches up"
-    read -rp "  Continue with --allowerasing? [y/N] " reply || reply=""
+    if [ "$YES" -eq 1 ]; then reply=y; else read -rp "  Continue with --allowerasing? [y/N] " reply || reply=""; fi
     [[ $reply == [yY]* ]] || { warn "stopped before downloading Fedora $target; Fedora $current stays as it is"; exit 1; }
     erasing=(--allowerasing)
 fi

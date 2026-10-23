@@ -1,9 +1,17 @@
 #!/bin/bash
 # Deploy all system/ files to their live system paths. Hardware-specific files
 # follow scripts/lib/hw.sh and the overrides in setup.conf (see setup.conf.example).
+# Prints what it will change and asks once; --yes skips that (required when stdin
+# is not a terminal; fedora-setup.sh and the CI container pass it)
 
-# takes no options: --help (or any argument) prints this header instead of running
-[ $# -eq 0 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; case $1 in -h | --help) exit 0 ;; *) exit 2 ;; esac; }
+YES=0
+[ $# -le 1 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 2; }
+case ${1-} in
+    "") ;;
+    --yes) YES=1 ;;
+    -h | --help) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    *) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 2 ;;
+esac
 
 set -e
 cd "$(dirname "$0")/.."
@@ -22,20 +30,37 @@ if [ ! -t 1 ] || [ -n "${NO_COLOR-}" ]; then TEAL='' RED='' RESET=''; fi
 ok()      { echo -e "  ${TEAL}✓${RESET} $1"; }
 warn()    { echo -e "  ${RED}!${RESET} $1"; }
 section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; }
+confirm() {
+    [ "$YES" -eq 1 ] && return 0
+    [ -t 0 ] || { echo "  not a terminal: pass --yes to run without the confirmation" >&2; exit 1; }
+    local reply
+    read -rp "  Continue? [y/N] " reply
+    [[ $reply == [yY]* ]] || { echo "  stopped, nothing changed"; exit 1; }
+}
 
-# Remove a file an earlier run deployed once it no longer fits the hardware, but
-# only while it still matches the repo copy — an edited file is the owner's.
+# Retire obsolete deployments only when they still match the repository copy.
 retire() {  # repo-file live-path
     if [ -f "$2" ] && cmp -s "$1" "$2"; then
         sudo rm -f "$2"
-        ok "removed $2 (does not apply to this hardware)"
+        ok "removed obsolete $2"
     fi
 }
 
 FORM_FACTOR=$(hw_form_factor)
 NVIDIA_BRANCH=$(hw_nvidia_driver)
+KERNEL_ARGS="nowatchdog audit=1 audit_backlog_limit=8192 skew_tick=1 preempt=full"
+# desktops trade a little idle power for cache locality; laptops keep power-efficient workqueues
+[ "$FORM_FACTOR" = desktop ] && KERNEL_ARGS="$KERNEL_ARGS workqueue.power_efficient=false"
 section "Hardware"
 ok "$(hw_summary)"
+
+section "Plan"
+echo "  This run will, with sudo:"
+echo "   - take a snapper snapshot of / first (the restore point)"
+echo "   - copy every system/ file to its system path and reload sysctl, udev, tmpfiles and systemd"
+echo "   - set the kernel arguments on every installed kernel: $KERNEL_ARGS"
+echo "   - restart journald, and scx_loader and systemd-resolved only when their config changed"
+confirm
 
 section "Restore point"
 # /etc is in the root snapshot, /boot (kernel arguments) is not
@@ -48,11 +73,17 @@ fi
 section "NVIDIA"
 if [ -n "$NVIDIA_BRANCH" ]; then
     sudo cp system/nvidia-performance.conf /etc/modprobe.d/nvidia-performance.conf
-    sudo systemctl enable nvidia-suspend nvidia-hibernate nvidia-resume
-    ok "nvidia-performance.conf, suspend/resume services enabled"
+    sudo mkdir -p /usr/local/bin
+    sudo cp system/nvidia-vram-check.sh /usr/local/bin/nvidia-vram-check.sh
+    sudo chmod 755 /usr/local/bin/nvidia-vram-check.sh
+    sudo cp system/nvidia-vram-check.service /etc/systemd/system/nvidia-vram-check.service
+    sudo restorecon /usr/local/bin/nvidia-vram-check.sh /etc/systemd/system/nvidia-vram-check.service
+    sudo systemctl daemon-reload
+    sudo systemctl enable nvidia-vram-check.service
+    sudo systemctl enable nvidia-suspend nvidia-hibernate nvidia-suspend-then-hibernate nvidia-resume
+    ok "nvidia-performance.conf, pre-sleep capacity check and suspend/resume services enabled"
     if hw_is_hybrid_gpu; then
-        # the panel hangs off the integrated GPU; forcing GLX, GBM and VA-API onto
-        # NVIDIA would keep the dGPU awake and can break the session
+        # Forcing NVIDIA rendering keeps a hybrid system's dGPU awake and can break the session.
         retire system/nvidia-wayland.conf /etc/environment.d/nvidia-wayland.conf
         ok "hybrid graphics: desktop stays on the integrated GPU (offload apps with switcherooctl launch)"
     else
@@ -61,6 +92,14 @@ if [ -n "$NVIDIA_BRANCH" ]; then
         ok "nvidia-wayland.conf"
     fi
 else
+    if cmp -s system/nvidia-vram-check.service /etc/systemd/system/nvidia-vram-check.service; then
+        sudo systemctl disable nvidia-vram-check.service
+        retire system/nvidia-vram-check.service /etc/systemd/system/nvidia-vram-check.service
+        sudo systemctl daemon-reload
+    fi
+    if [ ! -e /etc/systemd/system/nvidia-vram-check.service ]; then
+        retire system/nvidia-vram-check.sh /usr/local/bin/nvidia-vram-check.sh
+    fi
     retire system/nvidia-performance.conf /etc/modprobe.d/nvidia-performance.conf
     retire system/nvidia-wayland.conf /etc/environment.d/nvidia-wayland.conf
     ok "no NVIDIA driver in use — skipped"
@@ -71,8 +110,7 @@ sudo cp system/99-tweaks.conf /etc/sysctl.d/99-tweaks.conf
 sudo sysctl --system -q
 sudo cp system/99-disable-modules.conf /etc/modprobe.d/99-disable-modules.conf
 sudo cp system/dnf.conf /etc/dnf/dnf.conf
-# built from the locales in use (scripts/lib/hw.sh); a hardcoded en_US:en would
-# strip non-English translations on every later dnf operation
+# Restrict languages without stripping translations required by the system or session.
 printf '%%_install_langs %s\n' "$(hw_install_langs)" | sudo tee /etc/rpm/macros.image-language-conf >/dev/null
 sudo cp system/zram-generator.conf /etc/systemd/zram-generator.conf
 sudo cp system/hugepages.conf /etc/tmpfiles.d/hugepages.conf
@@ -80,9 +118,6 @@ sudo systemd-tmpfiles --create /etc/tmpfiles.d/hugepages.conf
 ok "99-tweaks.conf, 99-disable-modules.conf, dnf.conf, zram-generator.conf, hugepages.conf"
 
 section "Kernel parameters"
-KERNEL_ARGS="nowatchdog audit=1 audit_backlog_limit=8192 skew_tick=1 preempt=full"
-# desktops trade a little idle power for cache locality; laptops keep power-efficient workqueues
-[ "$FORM_FACTOR" = desktop ] && KERNEL_ARGS="$KERNEL_ARGS workqueue.power_efficient=false"
 sudo grubby --update-kernel=ALL --remove-args="nowatchdog audit=0 audit=1 audit_backlog_limit skew_tick=1 workqueue.power_efficient=false preempt=full" 2>/dev/null || true
 sudo grubby --update-kernel=ALL --args="$KERNEL_ARGS"
 ok "Kernel parameters set for a $FORM_FACTOR (takes effect on next boot)"
@@ -106,8 +141,7 @@ fi
 section "tuned"
 sudo cp system/tuned-ppd.conf /etc/tuned/ppd.conf
 if [ "$FORM_FACTOR" = laptop ]; then
-    # tuned-ppd's battery-aware default; also undoes latency-performance left by an
-    # earlier desktop run. Performance in the battery applet still maps to latency-performance
+    # Balanced lets tuned-ppd select its battery profile on laptops.
     sudo tuned-adm profile balanced
     ok "tuned: balanced; PPD performance mapped to latency-performance"
 else
@@ -116,22 +150,28 @@ else
 fi
 
 section "udev rules (device quirks, inert without the device)"
-sudo cp system/99-lamzu.rules /etc/udev/rules.d/99-lamzu.rules
+retire system/70-lamzu.rules /etc/udev/rules.d/99-lamzu.rules
+sudo cp system/70-lamzu.rules /etc/udev/rules.d/70-lamzu.rules
 sudo cp system/99-disable-wakeup.rules /etc/udev/rules.d/99-disable-wakeup.rules
 sudo cp system/99-dualsense.rules /etc/udev/rules.d/99-dualsense.rules
-sudo udevadm control --reload-rules && sudo udevadm trigger
-ok "99-lamzu.rules, 99-disable-wakeup.rules, 99-dualsense.rules"
+# only the subsystems the three rule files match, not every device on a running desktop
+sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=usb --subsystem-match=input --subsystem-match=hidraw
+ok "70-lamzu.rules, 99-disable-wakeup.rules, 99-dualsense.rules"
 
 section "Suspend / resume"
 sudo cp system/kwin-display-fix.sh /usr/lib/systemd/system-sleep/kwin-display-fix.sh
 sudo chmod +x /usr/lib/systemd/system-sleep/kwin-display-fix.sh
-# the hook's state file lives here; no package creates the directory
-sudo mkdir -p -m 0700 /var/lib/systemd/sleep
-sudo restorecon /var/lib/systemd/sleep
+sudo mkdir -p /usr/local/bin
+sudo cp system/kde-display-sleep.sh /usr/local/bin/kde-display-sleep.sh
+sudo chmod 755 /usr/local/bin/kde-display-sleep.sh
+sudo cp system/kde-display-sleep.service /etc/systemd/system/kde-display-sleep.service
+sudo restorecon /usr/local/bin/kde-display-sleep.sh /etc/systemd/system/kde-display-sleep.service
 sudo cp system/usb-autosuspend.service /etc/systemd/system/usb-autosuspend.service
 sudo systemctl daemon-reload
+sudo systemctl enable kde-display-sleep.service
 sudo systemctl enable --now usb-autosuspend.service
-ok "kwin-display-fix.sh, usb-autosuspend.service"
+command -v jq >/dev/null || warn "jq is missing: kde-display-sleep.sh needs it (sudo dnf install jq)"
+ok "USB sleep hook, KDE display sleep service and USB autosuspend service"
 
 section "DNS hardening"
 sudo mkdir -p /etc/systemd/resolved.conf.d
@@ -140,7 +180,7 @@ if ! cmp -s system/resolved-hardening.conf /etc/systemd/resolved.conf.d/hardenin
     sudo cp system/resolved-hardening.conf /etc/systemd/resolved.conf.d/hardening.conf
     sudo systemctl restart systemd-resolved
 fi
-ok "resolved-hardening.conf (Quad9, DNSSEC, DoT)"
+ok "resolved-hardening.conf (Quad9 fallback, opportunistic DNSSEC/DoT)"
 
 section "plasmalogin restart fix"
 sudo mkdir -p /etc/systemd/system/plasmalogin.service.d
@@ -158,7 +198,7 @@ section "journald limits"
 sudo mkdir -p /etc/systemd/journald.conf.d
 sudo cp system/journald-limits.conf /etc/systemd/journald.conf.d/limits.conf
 sudo systemctl restart systemd-journald
-ok "journal capped at 1G (systemd default here was 4G)"
+ok "journal capped at 1G"
 
 section "Firefox policies"
 sudo mkdir -p /etc/firefox/policies
@@ -172,10 +212,12 @@ ok "libinput-overrides.quirks (debouncing off for LAMZU mice only)"
 
 section "NTSync"
 sudo cp system/ntsync.conf /etc/modules-load.d/ntsync.conf
-sudo cp system/99-ntsync.rules /etc/udev/rules.d/99-ntsync.rules
+retire system/70-ntsync.rules /etc/udev/rules.d/99-ntsync.rules
+sudo cp system/70-ntsync.rules /etc/udev/rules.d/70-ntsync.rules
 sudo udevadm control --reload-rules
 sudo modprobe ntsync 2>/dev/null || true
-ok "99-ntsync.rules, ntsync.conf"
+sudo udevadm trigger --subsystem-match=misc --sysname-match=ntsync
+ok "70-ntsync.rules, ntsync.conf"
 
 section "Disk quota fix (tmpfs)"
 sudo mkdir -p /etc/systemd/system/tmp.mount.d

@@ -8,7 +8,6 @@ on:
   schedule:
     - cron: "0 6 * * 1"  # Every Monday 06:00 UTC
 
-# Superseded runs on the same ref are pointless once a newer commit exists.
 concurrency:
   group: "trivy-${{ github.ref }}"
   cancel-in-progress: true
@@ -33,6 +32,7 @@ jobs:
         with:
           scan-type: "fs"
           scan-ref: "."
+          scanners: "vuln,misconfig,secret"
           format: "sarif"
           output: "trivy-results.sarif"
           severity: "CRITICAL,HIGH"

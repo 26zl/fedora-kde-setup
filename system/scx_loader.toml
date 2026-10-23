@@ -1,3 +1,3 @@
-# scx_lavd 1.1.3 starves tasks for 30+ s (sched-ext/scx#3791); back to scx_lavd once the COPR build has fix 6d31ddd
+# Avoid scx_lavd builds without the starvation fix 6d31ddd (sched-ext/scx#3791).
 default_sched = "scx_bpfland"
 default_mode = "Gaming"

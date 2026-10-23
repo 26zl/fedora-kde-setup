@@ -1,0 +1,12 @@
+[Unit]
+Description=Check NVIDIA suspend backing-store capacity
+Before=sleep.target nvidia-suspend.service nvidia-hibernate.service nvidia-suspend-then-hibernate.service
+ConditionPathExists=/proc/driver/nvidia/params
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/nvidia-vram-check.sh
+TimeoutStartSec=15s
+
+[Install]
+RequiredBy=sleep.target nvidia-suspend.service nvidia-hibernate.service nvidia-suspend-then-hibernate.service

@@ -1,0 +1,20 @@
+[Unit]
+Description=Preserve KDE external display state across sleep
+Documentation=man:systemd.special(7)
+DefaultDependencies=no
+Before=sleep.target
+StopWhenUnneeded=yes
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+RuntimeDirectory=kde-display-sleep
+RuntimeDirectoryMode=0700
+# sleep.target ordering keeps KDE IPC outside systemd-sleep's user.slice freeze.
+ExecStart=/usr/local/bin/kde-display-sleep.sh pre
+ExecStop=/usr/local/bin/kde-display-sleep.sh post
+TimeoutStartSec=10s
+TimeoutStopSec=25s
+
+[Install]
+WantedBy=sleep.target

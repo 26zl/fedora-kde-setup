@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<!-- ~/ES-DE/custom_systems/es_find_rules.xml — DuckStation resolves to the pinned AppImage only,
+     so an EOL Flatpak still on the PATH cannot take precedence -->
+<ruleList>
+    <emulator name="DUCKSTATION">
+        <rule type="staticpath">
+            <entry>~/Applications/DuckStation-x64.AppImage</entry>
+        </rule>
+    </emulator>
+</ruleList>

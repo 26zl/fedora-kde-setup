@@ -1,7 +1,6 @@
 [Unit]
 Description=USB autosuspend for xHCI-blocking devices
-# drivers override power/control after udev add/bind — write directly once coldplug settles
-# quirk list keyed on vendor:product IDs; does nothing unless one of them is plugged in
+# Apply device-specific power settings after drivers finish coldplug overrides.
 
 [Service]
 Type=oneshot
