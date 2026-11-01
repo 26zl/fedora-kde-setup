@@ -78,8 +78,8 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   ├── firefox-policies.json   # /etc/firefox/policies/ — telemetry, Studies, Pocket and sponsored content off
 │   ├── zram-generator.conf     # /etc/systemd/ — ZRAM as large as RAM, up to 8GB, zstd
 │   ├── tmp-mount-override.conf # /etc/systemd/system/tmp.mount.d/ — drop tmpfs usrquota
-│   ├── scx_loader.toml         # /etc/scx_loader/ — scx_bpfland Gaming mode on desktops (lavd until #3791 ships)
-│   ├── scx_loader-laptop.toml  # /etc/scx_loader/ — scx_bpfland Auto mode on laptops
+│   ├── scx_loader.toml         # /etc/scx_loader/ — scx_lavd Gaming mode on desktops
+│   ├── scx_loader-laptop.toml  # /etc/scx_loader/ — scx_lavd Auto mode on laptops
 │   ├── resolved-hardening.conf # /etc/systemd/resolved.conf.d/ — DNSSEC, DoT, LLMNR/mDNS off
 │   ├── tuned-ppd.conf          # /etc/tuned/ppd.conf — PPD → tuned profile map
 │   ├── ntsync.conf             # /etc/modules-load.d/ — load ntsync at boot
@@ -306,7 +306,7 @@ sudo systemctl enable --now scx_loader.service
 
 On a laptop, deploy `system/scx_loader-laptop.toml` instead: Auto mode, because Gaming mode keeps tasks on the fastest cores at the cost of battery.
 
-`scx_bpfland` runs in Gaming mode for now. `scx_lavd` gives better frame pacing, but 1.1.3 starves tasks for 30–43 s until the kernel watchdog ejects it ([sched-ext/scx#3791](https://github.com/sched-ext/scx/issues/3791)). The fix is commit [`6d31ddd`](https://github.com/sched-ext/scx/commit/6d31ddd8973333e95ae7e3584e84029533064d69), which only touches lavd; switch `default_sched` back to `scx_lavd` once the COPR ships a build that contains it.
+`scx_lavd` runs in Gaming mode and needs `scx-scheds` 1.1.4 or newer: 1.1.3 starves tasks for 30–43 s until the kernel watchdog ejects it ([sched-ext/scx#3791](https://github.com/sched-ext/scx/issues/3791)), and 1.1.4 contains the fix, commit [`6d31ddd`](https://github.com/sched-ext/scx/commit/6d31ddd8973333e95ae7e3584e84029533064d69). On an older build (`rpm -q scx-scheds`), set `default_sched = "scx_bpfland"` until the COPR catches up.
 
 > **Loads from kernel 7.2.7-200 on; broken on Fedora 7.1.x–7.2.6.** Those builds fail with
 > `the running kernel's BTF has malformed scx kfunc prototype(s)` — `KF_IMPLICIT_ARGS`
@@ -1099,7 +1099,7 @@ tuned-adm active                                             # latency-performan
 
 # SCX scheduler (scx_loader reports active even when nothing is attached)
 cat /sys/kernel/sched_ext/state      # enabled
-cat /sys/kernel/sched_ext/root/ops   # bpfland_...
+cat /sys/kernel/sched_ext/root/ops   # lavd_...
 
 # ZRAM
 lsblk | grep zram

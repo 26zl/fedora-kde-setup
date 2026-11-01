@@ -1,3 +1,3 @@
-# Avoid scx_lavd builds without the starvation fix 6d31ddd (sched-ext/scx#3791).
-default_sched = "scx_bpfland"
+# scx_lavd needs scx-scheds 1.1.4 or newer; 1.1.3 lacks starvation fix 6d31ddd (sched-ext/scx#3791).
+default_sched = "scx_lavd"
 default_mode = "Gaming"
