@@ -389,10 +389,9 @@ ok "auditd collecting audit events"
 
 section "KWin latency"
 kwriteconfig6 --file kwinrc --group Compositing --key LatencyPolicy ExtremelyLow
-kwriteconfig6 --file kwinrc --group Plugins --key blurEnabled true
 # KWin's gamepad->keyboard desktop navigation hijacks controllers in games/emulators
 kwriteconfig6 --file kwinrc --group Plugins --key gamecontrollerEnabled false
-ok "KWin: ExtremelyLow latency, blur enabled, gamepad-nav disabled"
+ok "KWin: ExtremelyLow latency, gamepad-nav disabled"
 
 section "KDE annoyances"
 kwriteconfig6 --file kwinrc --group Plugins --key zoomEnabled false
@@ -461,12 +460,13 @@ if [ "$RICE" = yes ]; then
     install_config configs/kde/DarthVader.colors ~/.local/share/color-schemes/DarthVader.colors
     install_config configs/kde/kvantum/kvantum.kvconfig ~/.config/Kvantum/kvantum.kvconfig
     install_config configs/kde/plasma-theme ~/.local/share/plasma/desktoptheme/darth-vader
+    kwriteconfig6 --file kwinrc --group Plugins --key blurEnabled true
     # after ~/scripts/hwstat.sh: Conky reads it once at start for the CPU and GPU rows
     install_config configs/conky/conky.conf ~/.config/conky/conky.conf
     install_config configs/systemd/conky.service ~/.config/systemd/user/conky.service
     systemctl --user daemon-reload
     systemctl --user enable --now conky.service
-    ok "Wallpaper (desktop and lock screen), color scheme, Kvantum and Plasma theme files, Conky service"
+    ok "Wallpaper (desktop and lock screen), color scheme, Kvantum and Plasma theme files, blur, Conky service"
 fi
 
 section "Setup complete"

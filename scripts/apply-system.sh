@@ -21,6 +21,7 @@ source scripts/lib/hw.sh
 # shellcheck disable=SC1091
 [ -f setup.conf ] && source ./setup.conf
 hw_check_conf
+command -v kreadconfig6 >/dev/null || { echo "this setup requires KDE Plasma 6 (no kreadconfig6)" >&2; exit 1; }
 
 TEAL='\033[38;2;0;200;168m'
 RED='\033[38;2;170;28;28m'
@@ -207,7 +208,7 @@ if [ "$RICE" = yes ]; then
 else
     if [ "$current_wp" = "$login_wp" ]; then sudo kwriteconfig6 "${greeter[@]}" --delete; fi
     retire wallpaper/wallpaper.jpg /usr/share/wallpapers/custom/wallpaper.jpg
-    ok "Login screen wallpaper left at the default (RICE=no)"
+    ok "Login screen wallpaper left to System Settings (RICE=no)"
 fi
 
 section "journald limits"

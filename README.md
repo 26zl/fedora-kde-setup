@@ -728,7 +728,7 @@ sudo dnf install -y yazi
 
 ![Wallpaper](wallpaper/wallpaper.jpg)
 
-`fedora-setup.sh` sets up this section except the Layan Kvantum theme and the panel, and also puts the wallpaper on the lock and login screens; the color scheme, application style and desktop wallpaper still need Apply in System Settings. `RICE=no` in `setup.conf` skips all of it and keeps the terminal setup and KDE settings. The login screen only gets the wallpaper while System Settings → Login Screen has no other one chosen, and `apply-system.sh` with `RICE=no` takes it back off.
+`fedora-setup.sh` sets up this section except the Layan Kvantum theme and the panel, and also puts the wallpaper on the lock and login screens; the color scheme, application style and desktop wallpaper still need Apply in System Settings. `RICE=no` in `setup.conf` skips all of it and keeps the terminal setup and KDE settings. The login screen gets the wallpaper only while System Settings → Login Screen has no other one saved. Choosing Fedora's default there saves nothing, so to keep it, set `RICE=no`; `apply-system.sh` then takes the wallpaper back off.
 
 **Color palette extracted from wallpaper:**
 
