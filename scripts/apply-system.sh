@@ -134,10 +134,10 @@ sudo mkdir -p /etc/scx_loader
 scx_before=$(cat /etc/scx_loader/config.toml 2>/dev/null || true)
 if [ "$FORM_FACTOR" = laptop ]; then
     sudo cp system/scx_loader-laptop.toml /etc/scx_loader/config.toml
-    ok "scx_loader-laptop.toml (scx_bpfland, Auto mode)"
+    ok "scx_loader-laptop.toml (scx_lavd, Auto mode)"
 else
     sudo cp system/scx_loader.toml /etc/scx_loader/config.toml
-    ok "scx_loader.toml (scx_bpfland, Gaming mode)"
+    ok "scx_loader.toml (scx_lavd, Gaming mode)"
 fi
 # scx_loader reads its config only when it starts
 if [ "$scx_before" != "$(cat /etc/scx_loader/config.toml)" ] && systemctl is-active -q scx_loader; then
