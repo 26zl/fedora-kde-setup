@@ -26,7 +26,7 @@ dnf -y -q install systemd-udev kmod tuned diffutils
 stub=$(mktemp -d)
 printf '#!/bin/sh\nexec "$@"\n' >"$stub/sudo"
 printf '#!/bin/sh\nexit 1\n' >"$stub/snapper"
-for c in grubby kwriteconfig6 modprobe restorecon setquota sysctl systemctl systemd-tmpfiles tuned-adm udevadm; do
+for c in grubby kreadconfig6 kwriteconfig6 modprobe restorecon setquota sysctl systemctl systemd-tmpfiles tuned-adm udevadm; do
     printf '#!/bin/sh\nexit 0\n' >"$stub/$c"
 done
 chmod +x "$stub"/*
@@ -35,7 +35,24 @@ HW_ROOT=$(mktemp -d)
 export PATH="$stub:$PATH" NO_COLOR=1 HW_ROOT
 
 case $2 in
-    desktop) FORM_FACTOR=desktop NVIDIA_DRIVER=current bash scripts/apply-system.sh --yes ;;
+    desktop)
+        # real KConfig tools: the login screen key must not replace a wallpaper chosen in System Settings
+        dnf -y -q install kf6-kconfig
+        rm "$stub/kreadconfig6" "$stub/kwriteconfig6"
+        apply() { RICE=$1 FORM_FACTOR=desktop NVIDIA_DRIVER=current bash scripts/apply-system.sh --yes; }
+        greeter=(--file /etc/plasmalogin.conf --group Greeter --group Wallpaper --group org.kde.image --group General --key Image)
+        expect_wp() { [ "$(kreadconfig6 "${greeter[@]}")" = "$1" ] || { echo "FAILED: $2" >&2; exit 1; }; }
+        apply yes
+        expect_wp file:///usr/share/wallpapers/custom/wallpaper.jpg "the login screen wallpaper was not set"
+        apply no >/dev/null
+        expect_wp "" "RICE=no left the login screen wallpaper in place"
+        [ ! -e /usr/share/wallpapers/custom/wallpaper.jpg ] || { echo "FAILED: RICE=no kept the wallpaper copy" >&2; exit 1; }
+        kwriteconfig6 "${greeter[@]}" file:///var/lib/plasmalogin/wallpapers/own.jpg
+        apply yes >/dev/null
+        apply no >/dev/null
+        expect_wp file:///var/lib/plasmalogin/wallpapers/own.jpg "a wallpaper chosen in System Settings was replaced"
+        echo "apply-system.sh: login screen wallpaper set, removed with RICE=no, and a chosen one kept"
+        ;;
     laptop) FORM_FACTOR=laptop NVIDIA_DRIVER=none bash scripts/apply-system.sh --yes ;;
     readme)
         failed=0 prev=""

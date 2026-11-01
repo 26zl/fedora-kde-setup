@@ -48,6 +48,7 @@ retire() {  # repo-file live-path
 
 FORM_FACTOR=$(hw_form_factor)
 NVIDIA_BRANCH=$(hw_nvidia_driver)
+RICE=${RICE:-yes}
 KERNEL_ARGS="nowatchdog audit=1 audit_backlog_limit=8192 skew_tick=1 preempt=full"
 # desktops trade a little idle power for cache locality; laptops keep power-efficient workqueues
 [ "$FORM_FACTOR" = desktop ] && KERNEL_ARGS="$KERNEL_ARGS workqueue.power_efficient=false"
@@ -58,6 +59,11 @@ section "Plan"
 echo "  This run will, with sudo:"
 echo "   - take a snapper snapshot of / first (the restore point)"
 echo "   - copy every system/ file to its system path and reload sysctl, udev, tmpfiles and systemd"
+if [ "$RICE" = yes ]; then
+    echo "   - set the login screen wallpaper unless one is already chosen in System Settings"
+else
+    echo "   - take this setup's wallpaper off the login screen (RICE=no)"
+fi
 echo "   - set the kernel arguments on every installed kernel: $KERNEL_ARGS"
 echo "   - restart journald, and scx_loader and systemd-resolved only when their config changed"
 confirm
@@ -188,11 +194,21 @@ sudo cp system/plasmalogin-restart.conf /etc/systemd/system/plasmalogin.service.
 sudo systemctl daemon-reload
 ok "plasmalogin-restart.conf"
 
-section "plasmalogin wallpaper"
-sudo mkdir -p /usr/share/wallpapers/custom
-sudo cp wallpaper/wallpaper.jpg /usr/share/wallpapers/custom/wallpaper.jpg
-sudo cp system/plasmalogin.conf /etc/plasmalogin.conf
-ok "Login screen wallpaper set"
+section "Login screen wallpaper"
+login_wp=file:///usr/share/wallpapers/custom/wallpaper.jpg
+greeter=(--file /etc/plasmalogin.conf --group Greeter --group Wallpaper --group org.kde.image --group General --key Image)
+current_wp=$(kreadconfig6 "${greeter[@]}")
+if [ "$RICE" = yes ]; then
+    sudo mkdir -p /usr/share/wallpapers/custom
+    sudo cp wallpaper/wallpaper.jpg /usr/share/wallpapers/custom/wallpaper.jpg
+    # a drop-in in /etc/plasmalogin.conf.d loses to Fedora's defaults.conf, and System Settings saves to this file, so only an empty key is set
+    if [ -z "$current_wp" ]; then sudo kwriteconfig6 "${greeter[@]}" "$login_wp"; fi
+    ok "Login screen wallpaper: $(kreadconfig6 "${greeter[@]}")"
+else
+    if [ "$current_wp" = "$login_wp" ]; then sudo kwriteconfig6 "${greeter[@]}" --delete; fi
+    retire wallpaper/wallpaper.jpg /usr/share/wallpapers/custom/wallpaper.jpg
+    ok "Login screen wallpaper left at the default (RICE=no)"
+fi
 
 section "journald limits"
 sudo mkdir -p /etc/systemd/journald.conf.d

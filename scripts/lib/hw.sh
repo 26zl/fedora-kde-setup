@@ -69,6 +69,9 @@ hw_check_conf() {
     case "${AUDIO_TRIM:-no}" in yes|no) ;;
         *) echo "setup.conf: AUDIO_TRIM must be yes or no (got '$AUDIO_TRIM')" >&2; return 1 ;;
     esac
+    case "${RICE:-yes}" in yes|no) ;;
+        *) echo "setup.conf: RICE must be yes or no (got '$RICE')" >&2; return 1 ;;
+    esac
 }
 
 # desktop or laptop; FORM_FACTOR in setup.conf overrides the detection.

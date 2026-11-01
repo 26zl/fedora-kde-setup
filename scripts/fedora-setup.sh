@@ -1,5 +1,5 @@
 #!/bin/bash
-# Fedora 44 KDE post-install setup for x86_64; hardware overrides go in setup.conf.
+# Fedora 44 KDE post-install setup for x86_64; hardware overrides and RICE=no go in setup.conf.
 # Run as a regular user; sudo is called where needed after one confirmation.
 # --yes skips confirmation and is required without a terminal; --help shows usage.
 
@@ -30,6 +30,7 @@ source scripts/lib/restore.sh
 # shellcheck disable=SC1091
 [ -f setup.conf ] && source ./setup.conf
 hw_check_conf
+RICE=${RICE:-yes}
 
 TEAL='\033[38;2;0;200;168m'
 RED='\033[38;2;170;28;28m'
@@ -79,7 +80,12 @@ echo "   - set up snapper snapshots on a btrfs root, then deploy the system/ fil
 echo "     (kernel arguments, sysctl, modprobe, udev, systemd units and drop-ins)"
 echo "   - trim default firewall services and ports (ssh included), remove kde-connect, disable cups, abrt and gssproxy, enable auditd"
 echo "   - set the RTC to UTC$(hw_has_windows && echo ' and make GRUB remember the last-booted OS')"
-echo "   - write the KDE, kitty, fish, starship and conky configs (existing files kept as numbered backups) and edit ~/.bashrc"
+echo "   - write the KDE settings and the kitty, fish and starship configs (existing files kept as numbered backups) and edit ~/.bashrc"
+if [ "$RICE" = yes ]; then
+    echo "   - add the Darth Vader look: wallpaper on the lock and login screens, theme files and Conky (RICE=no in setup.conf skips it)"
+else
+    echo "   - leave the desktop look alone (RICE=no)"
+fi
 confirm
 
 section "Pre-setup restore point"
@@ -183,8 +189,6 @@ sudo dnf install -y \
     htop \
     btop \
     wl-clipboard \
-    kvantum \
-    conky \
     jq \
     pciutils \
     libva-utils \
@@ -404,12 +408,6 @@ kwriteconfig6 --file kdeglobals --group KDE --key AnimationDurationFactor 0.5
 kwriteconfig6 --file baloofilerc --group "Basic Settings" --key "Indexing-Enabled" false
 ok "KDE: zoom/shake/Meta-launcher/bounce/splash off, clean login, 0.5x animations, Baloo off"
 
-section "Lock screen wallpaper"
-kwriteconfig6 --file kscreenlockerrc \
-  --group "Greeter" --group "Wallpaper" --group "org.kde.image" --group "General" \
-  --key "Image" "file://${HOME}/Pictures/wallpaper.jpg"
-ok "Lock screen wallpaper set"
-
 section "Audio (WirePlumber)"
 audio_conf=~/.config/wireplumber/wireplumber.conf.d/50-audio.conf
 # opt-in, but an install that already has the file keeps getting updates
@@ -427,13 +425,8 @@ mkdir -p ~/scripts ~/.config/systemd/user
 install_config configs/kitty/kitty.conf ~/.config/kitty/kitty.conf
 install_config configs/fastfetch/config.jsonc ~/.config/fastfetch/config.jsonc
 install_config configs/starship/starship.toml ~/.config/starship.toml
-install_config configs/conky/conky.conf ~/.config/conky/conky.conf
-install_config configs/kde/DarthVader.colors ~/.local/share/color-schemes/DarthVader.colors
-install_config configs/kde/kvantum/kvantum.kvconfig ~/.config/Kvantum/kvantum.kvconfig
-install_config configs/kde/plasma-theme ~/.local/share/plasma/desktoptheme/darth-vader
 install_config configs/fish/config.fish ~/.config/fish/config.fish
 install_config configs/fish/functions/ya.fish ~/.config/fish/functions/ya.fish
-install_config wallpaper/wallpaper.jpg ~/Pictures/wallpaper.jpg
 ok "User configs written (existing files that differ kept as numbered backups)"
 
 for script in rice-start sysinfo hwstat deep-health mok-reenroll disk-cleanup; do
@@ -458,10 +451,23 @@ if ! grep -q 'zoxide init' ~/.bashrc; then
     ok "$HOME/.bashrc: configs/bashrc appended, ble-attach added last"
 fi
 
-install_config configs/systemd/conky.service ~/.config/systemd/user/conky.service
-systemctl --user daemon-reload
-systemctl --user enable --now conky.service
-ok "Conky systemd user service installed and enabled"
+if [ "$RICE" = yes ]; then
+    section "Desktop look (Darth Vader)"
+    sudo dnf install -y kvantum conky
+    install_config wallpaper/wallpaper.jpg ~/Pictures/wallpaper.jpg
+    kwriteconfig6 --file kscreenlockerrc \
+      --group "Greeter" --group "Wallpaper" --group "org.kde.image" --group "General" \
+      --key "Image" "file://${HOME}/Pictures/wallpaper.jpg"
+    install_config configs/kde/DarthVader.colors ~/.local/share/color-schemes/DarthVader.colors
+    install_config configs/kde/kvantum/kvantum.kvconfig ~/.config/Kvantum/kvantum.kvconfig
+    install_config configs/kde/plasma-theme ~/.local/share/plasma/desktoptheme/darth-vader
+    # after ~/scripts/hwstat.sh: Conky reads it once at start for the CPU and GPU rows
+    install_config configs/conky/conky.conf ~/.config/conky/conky.conf
+    install_config configs/systemd/conky.service ~/.config/systemd/user/conky.service
+    systemctl --user daemon-reload
+    systemctl --user enable --now conky.service
+    ok "Wallpaper (desktop and lock screen), color scheme, Kvantum and Plasma theme files, Conky service"
+fi
 
 section "Setup complete"
 step=0
@@ -481,14 +487,16 @@ if [ "$fw_updates" = 1 ]; then
     next "Firmware updates are available: sudo fwupdmgr update"
     echo "     → after a UEFI/BIOS update with Secure Boot on: sudo ~/scripts/mok-reenroll.sh"
 fi
-next "KDE Settings → Colors → DarthVader → Apply"
-next "KDE Settings → Application Style → kvantum → Apply"
-next "KDE Settings → Fonts → Fixed width → JetBrainsMono Nerd Font"
-next "KDE Settings → Wallpaper → ~/Pictures/wallpaper.jpg"
+if [ "$RICE" = yes ]; then
+    next "KDE Settings → Colors → DarthVader → Apply"
+    next "KDE Settings → Application Style → kvantum → Apply"
+    next "KDE Settings → Fonts → Fixed width → JetBrainsMono Nerd Font"
+    next "KDE Settings → Wallpaper → ~/Pictures/wallpaper.jpg"
+fi
+next "Check the result: bash scripts/verify-setup.sh"
 echo ""
-info "Conky runs as a systemd user service (systemctl --user status conky)"
+[ "$RICE" = yes ] && info "Conky runs as a systemd user service (systemctl --user status conky)"
 info "For retro emulation (ES-DE + PS1/PS2/PS3/Wii): bash scripts/emulation-setup.sh"
 info "For a local LLM (Strata, ~85 GB download): bash scripts/strata-setup.sh"
 info "For a local LLM via Ollama + Alpaca GUI (~9 GB download): sudo bash scripts/ollama-setup.sh"
-info "After the reboot, check the result: bash scripts/verify-setup.sh"
 ok "Reboot recommended."

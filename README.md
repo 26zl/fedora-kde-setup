@@ -34,7 +34,7 @@ The scripts detect the hardware and adapt to it, so the same repo sets up a gami
 | btrfs root | Snapper snapshots |
 | AMD or Intel CPU | CPU temperature from `k10temp` or `coretemp` in Conky and `sysinfo` |
 
-Detection lives in `scripts/lib/hw.sh`, and `fedora-setup.sh` prints what it found before it changes anything. To override it, copy `setup.conf.example` to `setup.conf` (git-ignored) and set `FORM_FACTOR`, `NVIDIA_DRIVER` or `AUDIO_TRIM`; a value outside the documented set stops the scripts before they change anything. Everything targets x86_64. Peripheral quirks (LAMZU mice, DualSense controllers, a few USB receivers) match on USB IDs and do nothing unless the device is plugged in.
+Detection lives in `scripts/lib/hw.sh`, and `fedora-setup.sh` prints what it found before it changes anything. To override it, copy `setup.conf.example` to `setup.conf` (git-ignored) and set `FORM_FACTOR`, `NVIDIA_DRIVER` or `AUDIO_TRIM`, or `RICE=no` to skip the [Darth Vader look](#desktop-rice-darth-vader-theme); a value outside the documented set stops the scripts before they change anything. Everything targets x86_64. Peripheral quirks (LAMZU mice, DualSense controllers, a few USB receivers) match on USB IDs and do nothing unless the device is plugged in.
 
 Developed and verified on an AMD desktop with a discrete NVIDIA card next to the CPU's integrated GPU, dual-booting Windows. The other hardware paths are covered by `tests/hw-detect.sh` and the CI package check.
 
@@ -94,7 +94,6 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   ├── kde-display-sleep.service # /etc/systemd/system/ — KDE IPC before freeze and after thaw
 │   ├── usb-autosuspend.service # /etc/systemd/system/ — autosuspend xHCI-blocking USB devices (by USB ID)
 │   ├── gamescope-caps.actions  # /etc/dnf/libdnf5-plugins/actions.d/ — re-grant CAP_SYS_NICE after gamescope updates
-│   ├── plasmalogin.conf        # /etc/plasmalogin.conf — login screen wallpaper
 │   └── plasmalogin-restart.conf # systemd drop-in — auto-restart plasmalogin on crash
 ├── scripts/
 │   ├── lib/hw.sh               # Hardware detection shared by the setup scripts
@@ -145,7 +144,7 @@ sudo reboot
 sudo dnf install -y git
 git clone https://github.com/26zl/fedora-kde-setup.git ~/fedora-setup
 cd ~/fedora-setup
-cp setup.conf.example setup.conf   # optional: only to override the detection
+cp setup.conf.example setup.conf   # optional: to override the detection or set RICE=no
 bash scripts/fedora-setup.sh       # prints what it will change and asks once; --yes skips that
 ```
 
@@ -729,6 +728,8 @@ sudo dnf install -y yazi
 
 ![Wallpaper](wallpaper/wallpaper.jpg)
 
+`fedora-setup.sh` sets up this section except the Layan Kvantum theme and the panel, and also puts the wallpaper on the lock and login screens; the color scheme, application style and desktop wallpaper still need Apply in System Settings. `RICE=no` in `setup.conf` skips all of it and keeps the terminal setup and KDE settings. The login screen only gets the wallpaper while System Settings → Login Screen has no other one chosen, and `apply-system.sh` with `RICE=no` takes it back off.
+
 **Color palette extracted from wallpaper:**
 
 | Color | Hex | Usage |
@@ -1004,7 +1005,7 @@ sudo bash scripts/ollama-setup.sh
 
 ### `scripts/fedora-setup.sh`
 
-Automated setup for a fresh Fedora 44 KDE install. Run after the initial system upgrade + reboot. It prints the detected hardware first, creates a verified recovery point before its first package or configuration change, installs the matching GPU drivers, and deploys the `system/` files via `apply-system.sh`. Close applications and other package managers first. Secure Boot MOK enrollment and BIOS settings stay manual (see the guide).
+Automated setup for a fresh Fedora 44 KDE install. Run after the initial system upgrade + reboot. It prints the detected hardware first, creates a verified recovery point before its first package or configuration change, installs the matching GPU drivers, deploys the `system/` files via `apply-system.sh`, and adds the [Darth Vader look](#desktop-rice-darth-vader-theme) unless `setup.conf` sets `RICE=no`. Close applications and other package managers first. Secure Boot MOK enrollment and BIOS settings stay manual (see the guide).
 
 ### `scripts/apply-system.sh`
 
@@ -1012,7 +1013,7 @@ Takes a snapper snapshot of `/` (see [Undoing Changes](#undoing-changes)), then 
 
 ### `scripts/lib/hw.sh` and `setup.conf`
 
-`hw.sh` holds the detection: GPUs by PCI vendor and device ID (which also picks the NVIDIA driver branch), desktop or laptop from the SMBIOS chassis type or a system battery, Windows from the UEFI boot list. `setup.conf` (copied from `setup.conf.example`) overrides it per machine: `FORM_FACTOR`, `NVIDIA_DRIVER` and the opt-in `AUDIO_TRIM`. `tests/hw-detect.sh` runs the detection against fixture trees for each kind of machine.
+`hw.sh` holds the detection: GPUs by PCI vendor and device ID (which also picks the NVIDIA driver branch), desktop or laptop from the SMBIOS chassis type or a system battery, Windows from the UEFI boot list. `setup.conf` (copied from `setup.conf.example`) overrides it per machine: `FORM_FACTOR`, `NVIDIA_DRIVER` and the opt-in `AUDIO_TRIM`; `RICE=no` leaves out the desktop look. `tests/hw-detect.sh` runs the detection against fixture trees for each kind of machine.
 
 ### `scripts/setup-github.sh`
 
@@ -1121,7 +1122,7 @@ pgrep conky && echo "Conky running"
 
 - **Pre-install recovery**: before package or configuration changes, `fedora-setup.sh` creates private read-only root and separate home snapshots plus verified `/boot` and EFI archives under `/.fedora-kde-setup-backups/run-*`. A `READY` marker identifies a completed backup; `RECOVERY.txt`, `layout.txt` and `mounts.txt` record recovery instructions, original layout and RTC policy. Recover from a Fedora live USB after saving newer work elsewhere. A later run reuses a completed restore point instead of adding one; Snapper does not manage them, and `scripts/disk-cleanup.sh` lists them and removes them on request. They protect the supported root/home/boot layout; external disks, firmware and EFI NVRAM are outside their scope. Filesystem snapshots on the same disk are not protection against disk loss or an atomic application transaction.
 - **Later system deployments**: `apply-system.sh` separately takes a Snapper root snapshot and prints its number. `sudo snapper -c root status <n>..0` lists what changed since, and `sudo snapper -c root undochange <n>..0 <path>` reverts a file. Its root snapshot excludes `/boot`; use the original pre-install archives when reverting that install, or remove later kernel arguments with `sudo grubby --update-kernel=ALL --remove-args="<args>"`.
-- **System files**: every target listed under Repository Structure is a file the setup adds, so deleting it undoes it, except `/etc/dnf/dnf.conf`, `/etc/tuned/ppd.conf` and `/etc/plasmalogin.conf`, which replace package defaults. Delete those and run `sudo dnf reinstall <package>` (`rpm -qf <file>` names it); a reinstall alone keeps the edited file because it is `%config(noreplace)`.
+- **System files**: every target listed under Repository Structure is a file the setup adds, so deleting it undoes it, except `/etc/dnf/dnf.conf` and `/etc/tuned/ppd.conf`, which replace package defaults. Delete those and run `sudo dnf reinstall <package>` (`rpm -qf <file>` names it); a reinstall alone keeps the edited file because it is `%config(noreplace)`. The login screen wallpaper is one key in `/etc/plasmalogin.conf`; `apply-system.sh` with `RICE=no` removes it.
 - **Services, firewall, KDE settings**: the commands in the guide above are the record; `systemctl unmask`, `firewall-cmd --permanent --add-service=<name>` and `kwriteconfig6` with the old value reverse them.
 - **User configs**: `fedora-setup.sh` keeps replaced config files, including files within theme directories, the Conky unit, optional audio rules and helper scripts, as `<file>.~N~` next to each file. It preserves unrelated files inside copied theme directories. KDE settings written through `kwriteconfig6` need their own reversal.
 - **GRUB default**: `/etc/default/grub.orig` is the file before the setup edited it; copy it back and run `sudo grub2-mkconfig -o /boot/grub2/grub.cfg`.
@@ -1144,7 +1145,7 @@ bash scripts/verify-setup.sh       # on the first boot of the new release
 
 `skip_if_unavailable=True` in `dnf.conf` keeps a third-party repo that has no build for the new release from stopping the download. A package built against libraries the new release replaced does stop it: the script names it and asks before passing `--allowerasing`, which removes it; reinstall it once its repo catches up. For Fedora 45 that is `emulationstation-de` from Terra, linked against FFmpeg 8 while Fedora 45 moves to FFmpeg 9. akmods rebuilds the NVIDIA module for the new kernel, at the latest on the first boot before the login screen. Fedora 45's mandatory RPM signatures do not stop it, because akmods installs its local build through `dnf --nogpgcheck`.
 
-`/etc/dnf/dnf.conf`, `/etc/tuned/ppd.conf` and `/etc/plasmalogin.conf` are the package-owned files this setup replaces. When `verify-setup.sh` reports `.rpmnew` versions of them or other drift, review the package defaults for required upstream changes before re-running `scripts/apply-system.sh`. Reapplying overwrites those paths with this repository's versions.
+`/etc/dnf/dnf.conf` and `/etc/tuned/ppd.conf` are the package-owned files this setup replaces. When `verify-setup.sh` reports `.rpmnew` versions of them or other drift, review the package defaults for required upstream changes before re-running `scripts/apply-system.sh`. Reapplying overwrites those paths with this repository's versions.
 
 What Fedora 45 changes for this setup (from its [ChangeSet](https://fedoraproject.org/wiki/Releases/45/ChangeSet)):
 
