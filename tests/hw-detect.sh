@@ -105,7 +105,8 @@ check "conf: defaults valid" yes "$(yes_no hw_check_conf)"
 check "conf: FORM_FACTOR=Laptop rejected" no "$(FORM_FACTOR=Laptop yes_no hw_check_conf 2>/dev/null)"
 check "conf: NVIDIA_DRIVER=latest rejected" no "$(NVIDIA_DRIVER=latest yes_no hw_check_conf 2>/dev/null)"
 check "conf: AUDIO_TRIM=true rejected" no "$(AUDIO_TRIM=true yes_no hw_check_conf 2>/dev/null)"
-check "conf: all overrides valid" yes "$(FORM_FACTOR=laptop NVIDIA_DRIVER=none AUDIO_TRIM=yes yes_no hw_check_conf)"
+check "conf: RICE=off rejected" no "$(RICE=off yes_no hw_check_conf 2>/dev/null)"
+check "conf: all overrides valid" yes "$(FORM_FACTOR=laptop NVIDIA_DRIVER=none AUDIO_TRIM=yes RICE=no yes_no hw_check_conf)"
 
 # Driver branch boundaries: Maxwell starts at 0x1340, Turing at 0x1e00.
 for case in 133f:none 1340:580xx 1b80:580xx 1db1:580xx 1e04:current 2204:current; do

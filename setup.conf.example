@@ -16,3 +16,9 @@
 # PipeWire (configs/wireplumber/wireplumber.conf.d/50-audio.conf). Only makes
 # sense when all sound goes through another device, e.g. a USB headset.
 #AUDIO_TRIM=no
+
+# no: leave the desktop look alone. Skips the Darth Vader wallpaper (desktop,
+# lock screen, login screen), the color scheme, Kvantum and Plasma theme files
+# and the Conky widget; the terminal configs and KDE settings still apply. On an
+# installed system, apply-system.sh then takes the login screen wallpaper back out.
+#RICE=yes

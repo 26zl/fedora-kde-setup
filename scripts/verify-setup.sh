@@ -110,11 +110,12 @@ check "SELinux enforcing" enforcing
 check "KDE display sleep service enabled" systemctl is-enabled -q kde-display-sleep.service
 
 section "Deployed files"
-# the same choices apply-system.sh makes: one scx variant, NVIDIA files only with the driver
+# the same choices apply-system.sh makes: one scx variant, NVIDIA files only with the driver, no wallpaper with RICE=no
 skip="scx_loader-laptop.toml"
 [ "$FORM_FACTOR" = laptop ] && skip="scx_loader.toml"
 [ -n "$NVIDIA_BRANCH" ] || skip+=" nvidia-performance.conf nvidia-wayland.conf nvidia-vram-check.sh nvidia-vram-check.service"
 [ -n "$NVIDIA_BRANCH" ] && hw_is_hybrid_gpu && skip+=" nvidia-wayland.conf"
+[ "${RICE:-yes}" = yes ] || skip+=" wallpaper.jpg"
 drift=0
 while read -r src dst; do
     [[ " $skip " == *" ${src##*/} "* ]] && continue
