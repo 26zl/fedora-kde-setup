@@ -1,5 +1,5 @@
 #!/bin/bash
-# Fedora 44 KDE post-install setup for x86_64; hardware overrides and RICE=no go in setup.conf.
+# Fedora 45 KDE post-install setup for x86_64; hardware overrides and RICE=no go in setup.conf.
 # Run as a regular user; sudo is called where needed after one confirmation.
 # --yes skips confirmation and is required without a terminal; --help shows usage.
 
@@ -19,7 +19,7 @@ set -e
 }
 [ -f /etc/fedora-release ] || { echo "this setup targets Fedora KDE; no /etc/fedora-release here" >&2; exit 1; }
 [ "$(uname -m)" = x86_64 ] || { echo "this setup requires x86_64" >&2; exit 1; }
-[ "$(rpm -E %fedora)" = 44 ] || { echo "this setup targets Fedora 44 KDE" >&2; exit 1; }
+[ "$(rpm -E %fedora)" = 45 ] || { echo "this setup targets Fedora 45 KDE" >&2; exit 1; }
 command -v kwriteconfig6 >/dev/null || { echo "this setup requires KDE Plasma 6" >&2; exit 1; }
 cd "$(dirname "$0")/.."
 

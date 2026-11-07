@@ -1,5 +1,5 @@
 #!/bin/bash
-# Upgrade to the next Fedora release (44 -> 45 when run on 44). Updates the current
+# Upgrade to the next Fedora release (45 -> 46 when run on 45). Updates the current
 # release, checks the machine, takes a snapper snapshot of / and downloads the
 # upgrade; it does not reboot. Start the upgrade with `sudo dnf system-upgrade reboot`
 # and run scripts/verify-setup.sh on the first boot of the new release.
@@ -106,20 +106,51 @@ fi
 section "Download"
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT
-# Offer --allowerasing only after dependency resolution fails; dnf previews removals.
+# A file requirement outside /etc, /usr/bin and /usr/sbin resolves only with the filelists metadata.
+dnf_opts=(--releasever="$target" "--setopt=optional_metadata_types=comps,filelists,updateinfo")
+resolve() {  # dnf options...; dnf's output lands in $log
+    # shellcheck disable=SC2024  # the log is this user's own temp file
+    sudo dnf system-upgrade download "${dnf_opts[@]}" "$@" --assumeno >"$log" 2>&1 || true
+    ! grep -q 'Failed to resolve the transaction' "$log"
+}
+# Package names out of dnf's problem lines: the installed package it cannot upgrade, or the
+# Fedora N+1 build whose own requirement is unmet.
+problem_packages() {  # installed|broken
+    case $1 in
+        installed) grep -oE 'installed package [^ ]+|- [^ ]+ does not belong to a distupgrade repository' "$log" |
+                       awk '{print ($1 == "-") ? $2 : $3}' ;;
+        broken)    grep -oE 'needed by [^ ]+ from' "$log" | awk '{print $3}' ;;
+    esac | sed -E 's/\.[a-z0-9_]+$//; s/-[^-]+-[^-]+$//' | sort -u
+}
 echo "  resolving the Fedora $target transaction (fetches its metadata first)..."
-# shellcheck disable=SC2024  # the log is this user's own temp file
-sudo dnf system-upgrade download --releasever="$target" --assumeno >"$log" 2>&1 || true
-erasing=()
-if grep -q 'Failed to resolve the transaction' "$log"; then
-    grep -oE 'installed package [^ ]+' "$log" | sort -u | sed 's/^installed package /  blocked by: /'
-    warn "these have no build for Fedora $target yet; --allowerasing removes them,"
-    warn "and they can be reinstalled once their repository catches up"
-    if [ "$YES" -eq 1 ]; then reply=y; else read -rp "  Continue with --allowerasing? [y/N] " reply || reply=""; fi
+extra=()
+if ! resolve; then
+    # A broken N+1 build is excluded so that --allowerasing drops the installed copy instead of
+    # failing on the new one (RPM Fusion's 45-1 release packages); a package with no N+1 build
+    # is erased the same way (ES-DE on 45). dnf install brings both back once their repo is fixed.
+    for name in $(problem_packages broken); do
+        warn "$name: its Fedora $target build cannot be installed; excluded, the installed copy is removed"
+        extra+=(--exclude="$name")
+    done
+    for name in $(problem_packages installed); do
+        [[ " ${extra[*]} " == *" --exclude=$name "* ]] && continue
+        if sudo dnf -q repoquery --releasever="$target" --available "$name" 2>/dev/null | grep -q .; then
+            warn "$name: cannot be upgraded as things stand; dnf's reasons follow if this stays unresolved"
+        else
+            warn "$name: no build for Fedora $target yet; --allowerasing removes it"
+        fi
+    done
+    extra+=(--allowerasing)
+    if ! resolve "${extra[@]}"; then
+        sed -n '/Failed to resolve the transaction/,$p' "$log" | sed 's/^/    /'
+        warn "unresolved even with ${extra[*]}; fix the problems above, or exclude a package yourself:"
+        warn "sudo dnf system-upgrade download ${dnf_opts[*]} --allowerasing --exclude=<name>"
+        exit 1
+    fi
+    if [ "$YES" -eq 1 ]; then reply=y; else read -rp "  Continue with ${extra[*]}? [y/N] " reply || reply=""; fi
     [[ $reply == [yY]* ]] || { warn "stopped before downloading Fedora $target; Fedora $current stays as it is"; exit 1; }
-    erasing=(--allowerasing)
 fi
-sudo dnf system-upgrade download --releasever="$target" "${erasing[@]}"
+sudo dnf system-upgrade download "${dnf_opts[@]}" "${extra[@]}"
 
 section "Next"
 ok "Fedora $target is downloaded"
@@ -127,3 +158,5 @@ echo "  1. sudo dnf system-upgrade reboot   runs the upgrade offline; with NVIDI
 echo "                                      boot rebuilds the module before the login screen"
 echo "  2. bash scripts/verify-setup.sh     on the first boot of Fedora $target"
 echo "  3. bash scripts/apply-system.sh     if verify-setup.sh reports drift or .rpmnew files"
+[ ${#extra[@]} -le 1 ] ||
+    echo "  4. sudo dnf install <name>          for each package removed above, once its repo has a working Fedora $target build"

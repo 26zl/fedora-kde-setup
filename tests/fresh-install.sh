@@ -3,7 +3,7 @@
 # Commands that need a booted system are stubbed; filesystem changes are real.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
-image=registry.fedoraproject.org/fedora:44
+image=registry.fedoraproject.org/fedora:45
 
 if [ "${1-}" != --inside ]; then
     engine=$(command -v podman || command -v docker) || { echo "needs podman or docker" >&2; exit 2; }
@@ -85,7 +85,7 @@ case $2 in
         for unsupported in architecture release; do
             case $unsupported in
                 architecture) stub_command='uname'; value=aarch64; message="requires x86_64" ;;
-                release) stub_command='rpm'; value=43; message="targets Fedora 44" ;;
+                release) stub_command='rpm'; value=44; message="targets Fedora 45" ;;
             esac
             printf '#!/bin/sh\necho %s\n' "$value" >"$stub/$stub_command"
             chmod +x "$stub/$stub_command"

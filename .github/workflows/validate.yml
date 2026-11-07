@@ -113,6 +113,7 @@ jobs:
     name: Check every package the scripts install exists
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # stays on 44 until Terra builds emulationstation-de for 45; packages-next shows it as a warning
     container: registry.fedoraproject.org/fedora:44
 
     steps:

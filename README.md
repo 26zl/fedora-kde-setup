@@ -1,17 +1,17 @@
-# Fedora 44 KDE — Full Setup Guide
+# Fedora 45 KDE — Full Setup Guide
 
 [![ShellCheck](https://github.com/26zl/fedora-kde-setup/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/26zl/fedora-kde-setup/actions/workflows/shellcheck.yml)
 [![Secret Scan](https://github.com/26zl/fedora-kde-setup/actions/workflows/secret-scan.yml/badge.svg)](https://github.com/26zl/fedora-kde-setup/actions/workflows/secret-scan.yml)
 [![Trivy](https://github.com/26zl/fedora-kde-setup/actions/workflows/trivy.yml/badge.svg)](https://github.com/26zl/fedora-kde-setup/actions/workflows/trivy.yml)
 [![Validate](https://github.com/26zl/fedora-kde-setup/actions/workflows/validate.yml/badge.svg)](https://github.com/26zl/fedora-kde-setup/actions/workflows/validate.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-teal.svg)](LICENSE)
-[![Fedora](https://img.shields.io/badge/Fedora-44-blue?logo=fedora&logoColor=white)](https://fedoraproject.org/)
+[![Fedora](https://img.shields.io/badge/Fedora-45-blue?logo=fedora&logoColor=white)](https://fedoraproject.org/)
 [![KDE Plasma](https://img.shields.io/badge/KDE-Plasma%206-1d99f3?logo=kde&logoColor=white)](https://kde.org/)
 [![Wayland](https://img.shields.io/badge/Wayland-native-orange?logo=wayland&logoColor=white)](https://wayland.freedesktop.org/)
 
-Post-installation guide, config files, and scripts for Fedora 44 KDE Plasma 6 on Wayland. Focused on low-latency gaming and a clean rice.
+Post-installation guide, config files, and scripts for Fedora 45 KDE Plasma 6 on Wayland. Focused on low-latency gaming and a clean rice.
 
-The automated fresh-install setup supports Fedora 44 on x86_64 and refuses other releases
+The automated fresh-install setup supports Fedora 45 on x86_64 and refuses other releases
 and architectures before making changes. Its pre-install recovery requires a Btrfs root
 and `/home` on the same Btrfs filesystem, with no separate system-data mounts or nested
 home subvolumes outside the supported layout. On other layouts it asks whether to continue
@@ -1005,7 +1005,7 @@ sudo bash scripts/ollama-setup.sh
 
 ### `scripts/fedora-setup.sh`
 
-Automated setup for a fresh Fedora 44 KDE install. Run after the initial system upgrade + reboot. It prints the detected hardware first, creates a verified recovery point before its first package or configuration change, installs the matching GPU drivers, deploys the `system/` files via `apply-system.sh`, and adds the [Darth Vader look](#desktop-rice-darth-vader-theme) unless `setup.conf` sets `RICE=no`. Close applications and other package managers first. Secure Boot MOK enrollment and BIOS settings stay manual (see the guide).
+Automated setup for a fresh Fedora 45 KDE install. Run after the initial system upgrade + reboot. It prints the detected hardware first, creates a verified recovery point before its first package or configuration change, installs the matching GPU drivers, deploys the `system/` files via `apply-system.sh`, and adds the [Darth Vader look](#desktop-rice-darth-vader-theme) unless `setup.conf` sets `RICE=no`. Close applications and other package managers first. Secure Boot MOK enrollment and BIOS settings stay manual (see the guide).
 
 ### `scripts/apply-system.sh`
 
@@ -1136,14 +1136,14 @@ pgrep conky && echo "Conky running"
 ## Upgrading Fedora
 
 ```bash
-bash scripts/fedora-upgrade.sh     # to the next release, e.g. 44 -> 45; downloads, does not reboot
+bash scripts/fedora-upgrade.sh     # to the next release, e.g. 45 -> 46; downloads, does not reboot
 sudo dnf system-upgrade reboot     # runs the upgrade offline and boots into the new release
 bash scripts/verify-setup.sh       # on the first boot of the new release
 ```
 
 `fedora-upgrade.sh` stops until the new release is out (its directory on dl.fedoraproject.org goes live on release day), brings the current release up to date and asks for a reboot if that installed a newer kernel. It refuses to start with less than 10 GB free on `/` or 200 MB on `/boot`, or on an NVIDIA machine whose driver is not loaded or whose akmods key is not enrolled under Secure Boot. Then it takes a snapper snapshot of `/` and downloads the upgrade.
 
-`skip_if_unavailable=True` in `dnf.conf` keeps a third-party repo that has no build for the new release from stopping the download. A package built against libraries the new release replaced does stop it: the script names it and asks before passing `--allowerasing`, which removes it; reinstall it once its repo catches up. For Fedora 45 that is `emulationstation-de` from Terra, linked against FFmpeg 8 while Fedora 45 moves to FFmpeg 9. akmods rebuilds the NVIDIA module for the new kernel, at the latest on the first boot before the login screen. Fedora 45's mandatory RPM signatures do not stop it, because akmods installs its local build through `dnf --nogpgcheck`.
+`skip_if_unavailable=True` in `dnf.conf` keeps a third-party repo that has no build for the new release from stopping the download. Two kinds of package still stop it, and the script sorts them out before it asks once. A package built against libraries the new release replaced has no working build yet, and `--allowerasing` removes it: for Fedora 45 that was `emulationstation-de` from Terra, linked against FFmpeg 8 while Fedora 45 moved to FFmpeg 9. A package whose new build cannot be installed because one of its own requirements is unmet is `--exclude`d, so `--allowerasing` drops the installed copy instead of failing on the new one: RPM Fusion's `rpmfusion-*-release-45-1` required a path no package provides, fixed in 45-2 two days after release. Reinstall either kind once its repo catches up with `dnf install <name>`, or the `*-release` package's URL from its site. In the first days after a release RPM Fusion's updates can also run ahead of or behind Fedora's (`mesa-va-drivers-freeworld` 26.2.6 against mesa 26.2.5, `libheif-freeworld` 1.23.5 against libheif 1.23.7 on Fedora 45); `dnf upgrade --exclude=<name>` bridges those days. akmods rebuilds the NVIDIA module for the new kernel, at the latest on the first boot before the login screen. Fedora 45's mandatory RPM signatures do not stop it, because akmods installs its local build through `dnf --nogpgcheck`.
 
 `/etc/dnf/dnf.conf` and `/etc/tuned/ppd.conf` are the package-owned files this setup replaces. When `verify-setup.sh` reports `.rpmnew` versions of them or other drift, review the package defaults for required upstream changes before re-running `scripts/apply-system.sh`. Reapplying overwrites those paths with this repository's versions.
 

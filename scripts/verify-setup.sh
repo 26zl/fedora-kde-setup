@@ -55,6 +55,15 @@ check "auditd running" systemctl is-active -q auditd
 check "zram swap active" zram_active
 # bluetoothd uses the kernel crypto API (AF_ALG) that Fedora 45 starts restricting
 if systemctl is-enabled -q bluetooth 2>/dev/null; then check "bluetooth running" systemctl is-active -q bluetooth; fi
+# nofail keeps the boot clean when a mount stops working: a replaced disk, a driver the kernel dropped
+unmounted=""
+while read -r src dst _ opts _; do
+    case $src in '' | \#*) continue ;; esac
+    case $dst in none | swap) continue ;; esac
+    case ",$opts," in *,noauto,* | *,x-systemd.automount,*) continue ;; esac
+    findmnt --mountpoint "$dst" >/dev/null 2>&1 || unmounted+=" $dst"
+done < /etc/fstab
+if [ -z "$unmounted" ]; then pass "every fstab entry is mounted"; else fail "fstab entries not mounted:$unmounted"; fi
 
 section "Scheduler and tuning"
 want=$(sed -n 's/^default_sched = "scx_\(.*\)"/\1/p' /etc/scx_loader/config.toml 2>/dev/null)
@@ -156,9 +165,14 @@ for repofile in /etc/yum.repos.d/cuda-fedora*.repo; do
         fail "CUDA repo $id lacks the driver exclude (bash scripts/strata-setup.sh sets it)"
     fi
     rel=$(rpm -E %fedora)
-    if [ "$id" != "cuda-fedora$rel-x86_64" ] && curl -sf -o /dev/null --max-time 20 \
-        "https://developer.download.nvidia.com/compute/cuda/repos/fedora$rel/x86_64/cuda-fedora$rel.repo"; then
-        note "NVIDIA now has a fedora$rel CUDA repo; $id still works (no dist tag)"
+    # NVIDIA opens a release's repo with DCGM only; the toolkit follows later
+    if [ "$id" != "cuda-fedora$rel-x86_64" ] && listing=$(curl -sf --max-time 20 \
+        "https://developer.download.nvidia.com/compute/cuda/repos/fedora$rel/x86_64/"); then
+        if grep -q 'cuda-toolkit-1' <<< "$listing"; then
+            note "NVIDIA's fedora$rel CUDA repo has the toolkit: re-point $id (scripts/strata-setup.sh)"
+        else
+            note "NVIDIA's fedora$rel CUDA repo exists but has no cuda-toolkit yet; $id still works (no dist tag)"
+        fi
     fi
 done
 
