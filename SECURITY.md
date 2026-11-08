@@ -6,6 +6,6 @@ Use GitHub's private vulnerability reporting for this repository (Security tab, 
 
 ## Scope
 
-The scripts run commands as root through `sudo` and change the system: package repositories, kernel arguments, sysctl, udev rules, systemd units, the firewall and a systemd sleep hook. A flaw in what they install, how they download it or how they configure the machine is in scope. Vulnerabilities in the packages themselves belong to their upstreams: Fedora, RPM Fusion, the COPR owners, Terra, NVIDIA and Flathub.
+The scripts run commands as root through `sudo` and change the system: package repositories, kernel arguments, sysctl, udev rules, systemd units, the firewall and a systemd sleep hook. A flaw in what they install, how they download it or how they configure the machine is in scope. Vulnerabilities in the packages themselves belong to their upstreams: Fedora, RPM Fusion, the COPR owners, Terra, NVIDIA and Flathub, the projects whose pinned GitHub releases or commits the scripts download (lazygit, ble.sh, Nerd Fonts, DuckStation, Ollama, Strata), the Hugging Face model `ollama-setup.sh` pulls, and the PyPI packages `uvx` resolves for Strata's web search (`duckduckgo-mcp-server`, pinned by version and by an upload-date cutoff).
 
 Only `main` is supported.

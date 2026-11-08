@@ -4,6 +4,7 @@
 - [ ] `bash tests/hw-detect.sh` passes
 - [ ] `bash tests/verify-setup.sh` passes
 - [ ] `bash tests/helper-scripts.sh` passes
+- [ ] `bash tests/fedora-setup.sh` and `bash tests/ollama-setup.sh` pass
 - [ ] `bash tests/setup-configs.sh` passes
 - [ ] `bash tests/sleep-hooks.sh` and `bash tests/nvidia-vram.sh` pass
 - [ ] `bash tests/emulation-setup.sh`, `bash tests/setup-restore.sh` and `bash tests/windows-vm.sh` pass

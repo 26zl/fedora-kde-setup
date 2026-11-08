@@ -18,19 +18,30 @@ dnf -y -q install \
 grep -hoP 'copr enable -y \K\S+' scripts/*.sh | while read -r c; do dnf -y -q copr enable "$c"; done
 grep -hoP -- '--from-repofile=\K\S+' scripts/*.sh |
     while read -r r; do dnf -y -q config-manager addrepo --from-repofile="$r"; done
-dnf -y -q install --repofrompath "terra,https://repos.fyralabs.com/terra$rel" \
-    --setopt="terra.gpgkey=https://repos.fyralabs.com/terra$rel/key.asc" terra-release
+if ! dnf -y -q install --repofrompath "terra,https://repos.fyralabs.com/terra$rel" \
+    --setopt="terra.gpgkey=https://repos.fyralabs.com/terra$rel/key.asc" terra-release; then
+    [ "$level" = warning ] || exit 1
+    echo "::warning::Terra has no repository for Fedora $rel yet; its packages show as missing below"
+fi
 # Match the setup's repository package restrictions.
 grep -hoP "config-manager setopt '\K[^']+" scripts/*.sh |
-    while read -r opt; do dnf -y -q config-manager setopt "$opt"; done
+    while read -r opt; do dnf -y -q config-manager setopt "$opt" || [ "$level" = warning ]; done
 dnf -y -q makecache
 
 echo "==> Fedora $rel: resolving packages"
 missing=0
+# The scripts install these only after checking the repo has them, so a lagging repo is a warning.
+guarded=$(grep -ohP 'repoquery --available \K[a-z0-9][a-z0-9._+-]*' scripts/*.sh | sort -u)
 for p in $(sed ':a;/\\$/{N;s/\\\n//;ba}' scripts/*.sh | grep -oP 'dnf install -y \K.*' |
            tr ' ' '\n' | grep -E '^[a-z0-9][a-z0-9._+-]*$' | sort -u); do
     # -y: makecache does not always import Terra's key; unanswered, the prompt drops the repo
-    dnf -y -q repoquery --available "$p" | grep -q . || { echo "::$level::not available on Fedora $rel: $p"; missing=1; }
+    dnf -y -q repoquery --available "$p" | grep -q . && continue
+    if grep -qx -- "$p" <<<"$guarded"; then
+        echo "::warning::not available on Fedora $rel, skipped by the script that installs it: $p"
+    else
+        echo "::$level::not available on Fedora $rel: $p"
+        missing=1
+    fi
 done
 
 echo "==> Flathub: resolving Flatpak IDs"

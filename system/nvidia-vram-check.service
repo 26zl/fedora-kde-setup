@@ -7,6 +7,22 @@ ConditionPathExists=/proc/driver/nvidia/params
 Type=oneshot
 ExecStart=/usr/local/bin/nvidia-vram-check.sh
 TimeoutStartSec=15s
+# read-only check: PrivateDevices, PrivateTmp, ProtectHome and ProtectSystem=strict would change what it measures
+CapabilityBoundingSet=
+LockPersonality=yes
+NoNewPrivileges=yes
+PrivateNetwork=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectSystem=full
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
 
 [Install]
 RequiredBy=sleep.target nvidia-suspend.service nvidia-hibernate.service nvidia-suspend-then-hibernate.service

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Fedora 44 KDE post-install setup for x86_64; hardware overrides and RICE=no go in setup.conf.
+# Fedora 45 KDE post-install setup for x86_64; hardware overrides and RICE=no go in setup.conf.
 # Run as a regular user; sudo is called where needed after one confirmation.
 # --yes skips confirmation and is required without a terminal; --help shows usage.
 
@@ -19,7 +19,7 @@ set -e
 }
 [ -f /etc/fedora-release ] || { echo "this setup targets Fedora KDE; no /etc/fedora-release here" >&2; exit 1; }
 [ "$(uname -m)" = x86_64 ] || { echo "this setup requires x86_64" >&2; exit 1; }
-[ "$(rpm -E %fedora)" = 44 ] || { echo "this setup targets Fedora 44 KDE" >&2; exit 1; }
+[ "$(rpm -E %fedora)" = 45 ] || { echo "this setup targets Fedora 45 KDE" >&2; exit 1; }
 command -v kwriteconfig6 >/dev/null || { echo "this setup requires KDE Plasma 6" >&2; exit 1; }
 cd "$(dirname "$0")/.."
 
@@ -37,10 +37,12 @@ RED='\033[38;2;170;28;28m'
 RESET='\033[0m'
 if [ ! -t 1 ] || [ -n "${NO_COLOR-}" ]; then TEAL='' RED='' RESET=''; fi
 
-ok()   { echo -e "  ${TEAL}✓${RESET} $1"; }
-info() { echo -e "  ${TEAL}→${RESET} $1"; }
-warn() { echo -e "  ${RED}!${RESET} $1"; }
-section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; }
+# interactive runs also leave these lines in the journal: journalctl -t fedora-kde-setup
+journal() { [ ! -t 1 ] || logger -t fedora-kde-setup -- "${0##*/}: $*" 2>/dev/null || true; }
+ok()   { echo -e "  ${TEAL}✓${RESET} $1"; journal "ok: $1"; }
+info() { echo -e "  ${TEAL}→${RESET} $1"; journal "$1"; }
+warn() { echo -e "  ${RED}!${RESET} $1"; journal "warning: $1"; }
+section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; journal "$1"; }
 confirm() {
     [ "$YES" -eq 1 ] && return 0
     [ -t 0 ] || { echo "  not a terminal: pass --yes to run without the confirmation" >&2; exit 1; }
@@ -75,6 +77,8 @@ echo "  This run will, with sudo where needed:"
 echo "   - first save read-only Btrfs root/home snapshots and verified boot/EFI archives"
 echo "     (requires the default same-filesystem Btrfs layout; close apps and other package managers first)"
 echo "   - add RPM Fusion, three scoped COPRs and Terra, and install the gaming, terminal and Flatpak tools"
+echo "     (Flathub; Fedora's Flatpak remote goes when no app uses it)"
+echo "   - keep only your languages' glibc langpacks and RPM translations, and replace /etc/dnf/dnf.conf"
 [ -n "$NVIDIA_BRANCH" ] && echo "   - install the NVIDIA driver ($NVIDIA_BRANCH branch)"
 echo "   - set up snapper snapshots on a btrfs root, then deploy the system/ files through apply-system.sh"
 echo "     (kernel arguments, sysctl, modprobe, udev, systemd units and drop-ins)"
@@ -146,8 +150,9 @@ sudo dnf copr enable -y lihaohong/yazi
 sudo dnf config-manager setopt 'copr:copr.fedorainfracloud.org:lihaohong:yazi.includepkgs=yazi,resvg'
 sudo dnf copr enable -y jdxcode/mise
 sudo dnf config-manager setopt 'copr:copr.fedorainfracloud.org:jdxcode:mise.includepkgs=mise'
-# dnf does not expand $releasever inside --setopt values, so the shell fills in the release
-sudo dnf install -y \
+# dnf does not expand $releasever inside --setopt values, so the shell fills in the release;
+# dnf refuses --repofrompath for an id that terra-release has already configured
+rpm -q terra-release >/dev/null 2>&1 || sudo dnf install -y \
     --repofrompath "terra,https://repos.fyralabs.com/terra$(rpm -E %fedora)" \
     --setopt="terra.gpgkey=https://repos.fyralabs.com/terra$(rpm -E %fedora)/key.asc" \
     terra-release
@@ -221,24 +226,24 @@ ok "fish installed (used as kitty shell, not login shell)"
 dl=$(mktemp -d)
 trap 'rm -rf "$dl"' EXIT
 fetch() {  # url sha256 file
-    curl -fsSL --connect-timeout 20 --retry 3 "$1" -o "$3"
+    curl -fsSL --connect-timeout 20 --speed-limit 1024 --speed-time 60 --retry 3 "$1" -o "$3"
     echo "$2  $3" | sha256sum -c --quiet -
 }
 
 if ! command -v lazygit &>/dev/null; then
-    fetch https://github.com/jesseduffield/lazygit/releases/download/v0.66.2/lazygit_0.66.2_linux_x86_64.tar.gz \
-        158efc9ddfa1241fab5fb3526bb442c8dc6c4b1904d73213b9e4e93e03c52034 "$dl/lazygit.tar.gz"
+    fetch https://github.com/jesseduffield/lazygit/releases/download/v0.66.3/lazygit_0.66.3_linux_x86_64.tar.gz \
+        0a23f429a95f0d09db298b3c291536d818de066aa5a85c255806f0490ff6656b "$dl/lazygit.tar.gz"
     tar -xzf "$dl/lazygit.tar.gz" -C "$dl" lazygit
     sudo install -m755 "$dl/lazygit" /usr/local/bin/lazygit
 fi
-ok "lazygit $(lazygit --version | grep -oP 'version=\K[^,]+')"
+ok "lazygit $(lazygit --version | grep -oP ', version=\K[^,]+')"
 
 # ble.sh needs make and an origin remote for its relative submodule URL.
 sudo dnf install -y git make
 if [[ ! -f ~/.local/share/blesh/ble.sh ]]; then
     git init -q "$dl/ble.sh"
     git -C "$dl/ble.sh" remote add origin https://github.com/akinomyoga/ble.sh.git
-    git -C "$dl/ble.sh" fetch -q --depth 1 origin d81fd54feb0d996fdff20dca27eaf0201f7015cc
+    git -C "$dl/ble.sh" fetch -q --depth 1 origin 152942758f567e51fd17bdc7b3783d27b3c476aa
     git -C "$dl/ble.sh" checkout -q FETCH_HEAD
     git -C "$dl/ble.sh" submodule update -q --init --recursive --depth 1
     make -C "$dl/ble.sh" install PREFIX=~/.local
@@ -310,6 +315,8 @@ else
 fi
 
 section "System configs (scripts/apply-system.sh)"
+# keep the untouched GRUB defaults: grubby in apply-system.sh rewrites GRUB_CMDLINE_LINUX
+[ ! -f /etc/default/grub ] || sudo cp -n /etc/default/grub /etc/default/grub.orig
 bash scripts/apply-system.sh --yes
 ok "System files deployed via apply-system.sh"
 
@@ -348,7 +355,6 @@ if hw_has_windows; then
     # GRUB re-picks the last-booted OS after a Windows hibernate wake; GRUB_SAVEDEFAULT requires GRUB_DEFAULT=saved
     grub_changed=0
     if ! grep -q '^GRUB_DEFAULT=saved' /etc/default/grub; then
-        sudo cp -n /etc/default/grub /etc/default/grub.orig  # the untouched file, kept once
         if grep -q '^GRUB_DEFAULT=' /etc/default/grub; then
             sudo sed -i 's/^GRUB_DEFAULT=.*/GRUB_DEFAULT=saved/' /etc/default/grub
         else
@@ -357,7 +363,6 @@ if hw_has_windows; then
         grub_changed=1
     fi
     if ! grep -q '^GRUB_SAVEDEFAULT=true' /etc/default/grub; then
-        sudo cp -n /etc/default/grub /etc/default/grub.orig
         echo 'GRUB_SAVEDEFAULT=true' | sudo tee -a /etc/default/grub >/dev/null
         grub_changed=1
     fi
@@ -442,7 +447,7 @@ if ! grep -q 'blesh/ble.sh' ~/.bashrc; then
     sed -i '1s|^|# >>> fedora-kde-setup: ble.sh must load before anything else >>>\n[[ $- == *i* ]] \&\& source ~/.local/share/blesh/ble.sh --noattach\n# <<< fedora-kde-setup <<<\n\n|' ~/.bashrc
     ok "$HOME/.bashrc: ble.sh --noattach added at top"
 fi
-if ! grep -q 'zoxide init' ~/.bashrc; then
+if ! grep -q 'ble-attach' ~/.bashrc; then
     [ -e ~/.bashrc.orig ] || cp ~/.bashrc ~/.bashrc.orig
     # the ble-attach line must land in .bashrc unexpanded
     # shellcheck disable=SC2016

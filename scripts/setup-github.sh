@@ -16,9 +16,11 @@ TEAL='\033[38;2;0;200;168m'
 RESET='\033[0m'
 if [ ! -t 1 ] || [ -n "${NO_COLOR-}" ]; then TEAL='' RESET=''; fi
 
-ok()      { echo -e "  ${TEAL}✓${RESET} $1"; }
-info()    { echo -e "  ${TEAL}→${RESET} $1"; }
-section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; }
+# interactive runs also leave these lines in the journal: journalctl -t fedora-kde-setup
+journal() { [ ! -t 1 ] || logger -t fedora-kde-setup -- "${0##*/}: $*" 2>/dev/null || true; }
+ok()      { echo -e "  ${TEAL}✓${RESET} $1"; journal "ok: $1"; }
+info()    { echo -e "  ${TEAL}→${RESET} $1"; journal "$1"; }
+section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; journal "$1"; }
 
 section "GitHub CLI"
 if ! command -v gh &>/dev/null; then

@@ -23,7 +23,11 @@ cat >"$scratch/bin/df" <<'STUB'
 printf 'Avail\n%s\n' "${BACKING_FREE:-18038862644}"
 STUB
 chmod +x "$scratch/bin/"*
-export PATH="$scratch/bin:$PATH" MEMINFO_FILE="$scratch/meminfo"
+export PATH="$scratch/bin:$PATH" MEMINFO_FILE="$scratch/meminfo" NVIDIA_VERSION_FILE="$scratch/version"
+write_version() {  # module release
+    printf 'NVRM version: NVIDIA UNIX %s for x86_64  %s  Release Build  (fixture)\n' "$1" "$2" >"$NVIDIA_VERSION_FILE"
+}
+write_version 'x86_64 Kernel Module' 580.105.08
 
 write_meminfo() {  # MemAvailable in kB
     printf 'MemTotal:       32000000 kB\nMemAvailable:   %s kB\n' "${1:-20000000}" >"$MEMINFO_FILE"
@@ -65,4 +69,22 @@ write_meminfo 4000000
 BACKING_FS=tmpfs reject 'needs at least'
 write_meminfo
 BACKING_FS=tmpfs bash "$repo/system/nvidia-vram-check.sh" >/dev/null
+
+# with no path, the open module keeps the store in RAM from 615.71.09 on: MemAvailable counts, /tmp does not
+write_version 'Open Kernel Module' 615.78.08
+BACKING_FREE=1 bash "$repo/system/nvidia-vram-check.sh" | grep -q 'RAM has room' ||
+    { echo 'FAIL: the in-RAM store was measured on /tmp' >&2; exit 1; }
+write_meminfo 4000000
+reject 'RAM needs at least'
+write_meminfo
+for driver in 'Open Kernel Module|610.57.04' 'x86_64 Kernel Module|615.78.08'; do
+    write_version "${driver%|*}" "${driver#*|}"
+    BACKING_FREE=1 reject '/tmp needs at least'
+done
+rm -f "$NVIDIA_VERSION_FILE"
+BACKING_FREE=1 reject '/tmp needs at least'
+grep -q 'NVreg_TemporaryFilePath=/var/tmp' "$repo/system/nvidia-580xx-storage.conf" ||
+    { echo 'FAIL: 580xx keeps its store on the /tmp tmpfs' >&2; exit 1; }
+! grep -q 'TemporaryFilePath' "$repo/system/nvidia-performance.conf" ||
+    { echo 'FAIL: the current branch no longer keeps its store in RAM' >&2; exit 1; }
 echo 'All NVIDIA backing-store tests passed.'

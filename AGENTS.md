@@ -21,11 +21,15 @@ awk '$1=="sudo" && $2=="cp" {print $3, $4}' scripts/apply-system.sh |
   while read -r s d; do cmp -s "$s" "$d" || echo "DIFF: $s"; done
 ```
 
+It also lists the scx variant for the other form factor, the NVIDIA files without the driver and
+the wallpaper with `RICE=no`; `verify-setup.sh` skips those.
+
 ## Boundaries
 
-- The scripts change the live system as root and ask once before doing so; `fedora-setup.sh`
-  and `apply-system.sh` refuse to run without a terminal unless given `--yes`. Do not run
-  them against a real machine from an agent session without being asked.
+- The scripts change the live system as root. `fedora-setup.sh` and `apply-system.sh` print a
+  plan, ask once and refuse to run without a terminal unless given `--yes`; the opt-in setup
+  scripts and `disk-cleanup.sh`'s cache pruning start without asking. Do not run any of them
+  against a real machine from an agent session without being asked.
 - Do not add download-and-pipe-to-shell steps, weaken the crypto policy, or install server or
   developer runtimes; the setup stays gaming- and desktop-focused (security tooling is
   documented in the README, not installed).

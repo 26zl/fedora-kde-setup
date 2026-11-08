@@ -13,23 +13,30 @@ RESET='\033[0m'
 if [ ! -t 1 ] || [ -n "${NO_COLOR-}" ]; then TEAL='' RED='' RESET=''; fi
 
 FAILED_CHECKS=0
-ok()      { echo -e "  ${TEAL}✓${RESET} $1"; }
-warn()    { echo -e "  ${RED}!${RESET} $1"; FAILED_CHECKS=1; }
-section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; }
+# interactive runs also leave these lines in the journal: journalctl -t fedora-kde-setup
+journal() { [ ! -t 1 ] || logger -t fedora-kde-setup -- "${0##*/}: $*" 2>/dev/null || true; }
+ok()      { echo -e "  ${TEAL}✓${RESET} $1"; journal "ok: $1"; }
+warn()    { echo -e "  ${RED}!${RESET} $1"; FAILED_CHECKS=1; journal "warning: $1"; }
+section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; journal "$1"; }
 
 ata_test_status() {
     sed -n '/Self-test execution status:/s/.*([[:space:]]*\([0-9][0-9]*\)).*/\1/p' <<<"$1"
 }
 
 check_smart_disk() {  # device transport
-    local disk=$1 transport=$2 health attributes caps status state result finished=0 unhealthy=0 code i
+    local disk=$1 transport=$2 health attributes caps status state result finished=0 unhealthy=0 code rc i
     echo "  $disk ($transport):"
-    if health=$(smartctl -H "$disk" 2>/dev/null); then
-        printf '%s\n' "$health" | grep -i 'overall-health' | sed 's/^/    /' || true
-    else
-        warn "$disk: SMART health query failed or reported an unhealthy device"
+    health=$(smartctl -H "$disk" 2>/dev/null) && rc=0 || rc=$?
+    printf '%s\n' "$health" | grep -i 'overall-health' | sed 's/^/    /' || true
+    # smartctl's exit status is a bit mask (man smartctl): 1-4 query failed, 8-16 failing now, 32-128 history
+    if (( rc & 7 )); then
+        warn "$disk: SMART health query failed"
         unhealthy=1
-        printf '%s\n' "$health" | grep -i 'overall-health' | sed 's/^/    /' || true
+    elif (( rc & 24 )); then
+        warn "$disk: SMART reports a failing disk or a prefail attribute at its threshold"
+        unhealthy=1
+    elif (( rc & 224 )); then
+        warn "$disk: SMART lists past threshold crossings or logged errors (smartctl -a $disk)"
     fi
     if attributes=$(smartctl -A "$disk" 2>/dev/null); then
         printf '%s\n' "$attributes" | grep -iE 'Critical Warning|Available Spare:|Percentage Used|Media and Data Integrity|Error Information Log|^Temperature:|Reallocated_Sector|Current_Pending_Sector|Offline_Uncorrectable|UDMA_CRC_Error' | sed 's/^/    /' || true
@@ -209,7 +216,17 @@ if [ -n "$BOOTFS" ]; then
     if [ "$STATE" = "clean" ]; then ok "/boot clean"; else warn "/boot state: ${STATE:-unknown}"; fi
 fi
 for part in "${NTFS[@]}"; do
-    if ntfsfix -n "$part" >/dev/null 2>&1; then ok "$part clean"; else warn "$part needs chkdsk from Windows"; fi
+    # ntfsfix refuses a read-write mounted volume; ntfs3 mounts a dirty one read-only or not at all
+    mounted=$(findmnt -rno FSTYPE,OPTIONS --source "$part" 2>/dev/null | head -n 1)
+    case "$mounted" in
+        "")
+            if ! command -v ntfsfix >/dev/null; then warn "$part not checked: ntfsfix is missing (sudo dnf install ntfsprogs)"
+            elif ntfsfix -n "$part" >/dev/null 2>&1; then ok "$part clean"
+            else warn "$part needs chkdsk from Windows"; fi ;;
+        "ntfs3 rw,"*) ok "$part clean (mounted read-write by ntfs3)" ;;
+        *" ro,"* | *" ro") warn "$part is mounted read-only: run chkdsk /f on it from Windows" ;;
+        *) echo "  $part is mounted (${mounted%% *}); unmount it to check" ;;
+    esac
 done
 
 section "GPU"

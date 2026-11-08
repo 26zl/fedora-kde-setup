@@ -29,5 +29,6 @@ jobs:
         with:
           scandir: "."
           severity: warning
+          version: v0.11.0
           # configs/ holds sourced dotfile fragments (bashrc, fish), not standalone scripts
           ignore_paths: configs

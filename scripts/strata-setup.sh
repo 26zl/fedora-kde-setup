@@ -17,12 +17,19 @@ RED='\033[38;2;170;28;28m'
 RESET='\033[0m'
 if [ ! -t 1 ] || [ -n "${NO_COLOR-}" ]; then TEAL='' RED='' RESET=''; fi
 
-ok()      { echo -e "  ${TEAL}✓${RESET} $1"; }
-warn()    { echo -e "  ${RED}!${RESET} $1"; }
-section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; }
+# interactive runs also leave these lines in the journal: journalctl -t fedora-kde-setup
+journal() { [ ! -t 1 ] || logger -t fedora-kde-setup -- "${0##*/}: $*" 2>/dev/null || true; }
+ok()      { echo -e "  ${TEAL}✓${RESET} $1"; journal "ok: $1"; }
+warn()    { echo -e "  ${RED}!${RESET} $1"; journal "warning: $1"; }
+section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; journal "$1"; }
 
 STRATA_REV=7ddc17a38fe7f31637e895ecfba58c2cd43d65ec  # v0.2.3.1
+# setup.conf may set both paths; the environment wins over it
+# shellcheck disable=SC1091
+conf() { if [ -f setup.conf ]; then (unset "$1"; . ./setup.conf >/dev/null; printf '%s' "${!1-}"); fi; }
+STRATA_DIR=${STRATA_DIR:-$(conf STRATA_DIR)}
 STRATA_DIR=${STRATA_DIR:-$HOME/Prosjekter/Strata}
+STRATA_DATA=${STRATA_DATA:-$(conf STRATA_DATA)}
 # not under /home: snapper would keep the model files in every snapshot
 STRATA_DATA=${STRATA_DATA:-/mnt/data/Strata-data}
 
@@ -35,11 +42,10 @@ if [ -d "$STRATA_DIR/.git" ]; then
 fi
 mkdir -p "$STRATA_DATA" 2>/dev/null ||
     { warn "Cannot create $STRATA_DATA — mount the data disk or set STRATA_DATA"; exit 1; }
+ok "checkout $STRATA_DIR, model files $STRATA_DATA"
 
 section "CUDA toolkit"
-# The engine is compiled from the pinned commit (--build below): 0.2's ready-made engines are checked
-# only against a hash from the same GitHub release. NVIDIA's repo lags Fedora releases and its
-# packages carry no dist tag, so fedora44 keeps working after an upgrade
+# NVIDIA's repo lags Fedora releases; its packages carry no dist tag, so fedora44 works on newer releases.
 [ -f /etc/yum.repos.d/cuda-fedora44.repo ] ||
     sudo dnf config-manager addrepo \
         --from-repofile=https://developer.download.nvidia.com/compute/cuda/repos/fedora44/x86_64/cuda-fedora44.repo
@@ -62,7 +68,8 @@ section "Model and engine"
 family=qwen
 [ "$(awk '/MemTotal/{print int($2/1048576)}' /proc/meminfo)" -lt 40 ] && family=coder
 # Reserve VRAM for the desktop; experimental speed projection applies the refusal-direction vector.
-# --build compiles the pinned source instead of fetching a ready-made engine; pictures stay off (text-only Coder).
+# --build compiles the pinned commit: a ready-made engine is checked only against a hash from its own release.
+# Pictures stay off for the text-only Coder.
 "$STRATA_DIR/setup.sh" --yes --family "$family" --no-start --data-dir "$STRATA_DATA" \
     --vram-reserve-mib 3072 --experimental-speed-projection on --vision no --images no --build
 if [ "$family" = coder ]; then
@@ -76,7 +83,9 @@ cfg.setdefault("env", {})["STRATA_RESIDENT_HEADROOM_GIB"] = "6"
 cfg["idle_unload_s"] = 600
 cfg["fit_max_tokens"] = True
 if uvx:
-    cfg["mcp_servers"] = {"search": {"command": "uvx", "args": ["duckduckgo-mcp-server@0.7.0"]}}
+    # the cutoff fixes the dependency set to what PyPI held then, as the version fixes the server
+    args = ["--exclude-newer", "2026-11-08T00:00:00Z", "duckduckgo-mcp-server@0.7.0"]
+    cfg["mcp_servers"] = {"search": {"command": "uvx", "args": args}}
 json.dump(cfg, open(path, "w"), indent=1)
 EOF
 fi
@@ -84,4 +93,8 @@ ok "Strata installed ($family), model files in $STRATA_DATA"
 
 section "Strata setup complete"
 ok "Start: $STRATA_DIR/run-<model>.sh — chat on http://127.0.0.1:8080; Ctrl+C in that terminal stops it, closing the tab does not"
-warn "Loaded, it holds ~20 GB of RAM and ~9 GB of VRAM until 10 minutes after the last request: stop it before gaming"
+if [ "$family" = coder ]; then
+    warn "Loaded, it holds ~20 GB of RAM and ~9 GB of VRAM until 10 minutes after the last request: stop it before gaming"
+else
+    warn "Loaded, it holds ~48 GB of RAM and ~9 GB of VRAM until you stop it: stop it before gaming"
+fi

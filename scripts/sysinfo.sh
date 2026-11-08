@@ -90,9 +90,9 @@ echo -e "  ${GRAY}ip     ${WHITE}${IP:-No address}${RESET}"
 line
 
 echo -e "  ${TEAL}TOP PROCESSES${RESET}"
-ps -eo comm,pcpu --sort=-pcpu | head -4 | tail -3 | \
-    awk -v teal="$TEAL" -v gray="$GRAY" -v white="$WHITE" -v reset="$RESET" \
-    '{printf "  %s%-20s%s %s%s%%%s\n", gray, $1, reset, white, $2, reset}'
+ps -eo pcpu,comm --sort=-pcpu --no-headers | head -3 | \
+    awk -v gray="$GRAY" -v white="$WHITE" -v reset="$RESET" \
+    '{cpu = $1; sub(/^ *[^ ]+ +/, ""); printf "  %s%-20s%s %s%s%%%s\n", gray, $0, reset, white, cpu, reset}'
 
 line
 echo ""

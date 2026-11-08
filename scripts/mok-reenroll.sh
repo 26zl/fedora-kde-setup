@@ -11,9 +11,11 @@ RED='\033[38;2;170;28;28m'
 RESET='\033[0m'
 if [ ! -t 1 ] || [ -n "${NO_COLOR-}" ]; then TEAL='' RED='' RESET=''; fi
 
-ok()      { echo -e "  ${TEAL}✓${RESET} $1"; }
-warn()    { echo -e "  ${RED}!${RESET} $1"; }
-section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; }
+# interactive runs also leave these lines in the journal: journalctl -t fedora-kde-setup
+journal() { [ ! -t 1 ] || logger -t fedora-kde-setup -- "${0##*/}: $*" 2>/dev/null || true; }
+ok()      { echo -e "  ${TEAL}✓${RESET} $1"; journal "ok: $1"; }
+warn()    { echo -e "  ${RED}!${RESET} $1"; journal "warning: $1"; }
+section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; journal "$1"; }
 
 [ "$(id -u)" -eq 0 ] || { echo "run with sudo"; exit 1; }
 
@@ -41,10 +43,12 @@ fi
 lspci -k | grep -A3 -Ei 'VGA|3D controller|Display controller' | grep 'Kernel driver' | sed 's/^\s*/  /' || true
 
 KEY=""
-for candidate in /etc/pki/akmods/certs/public_key.der /etc/pki/akmods/certs/*.der; do
+# a fixture directory in the tests, the akmods key directory on a real system
+certs=${MOK_CERT_DIR:-/etc/pki/akmods/certs}
+for candidate in "$certs/public_key.der" "$certs"/*.der; do
     [ -f "$candidate" ] && { KEY="$candidate"; break; }
 done
-[ -n "$KEY" ] || { warn "no signing key under /etc/pki/akmods/certs"; exit 1; }
+[ -n "$KEY" ] || { warn "no signing key under $certs"; exit 1; }
 echo "  key: $KEY"
 
 if mokutil --test-key "$KEY" 2>/dev/null | grep -q "already enrolled"; then

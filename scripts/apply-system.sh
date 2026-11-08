@@ -28,15 +28,25 @@ RED='\033[38;2;170;28;28m'
 RESET='\033[0m'
 if [ ! -t 1 ] || [ -n "${NO_COLOR-}" ]; then TEAL='' RED='' RESET=''; fi
 
-ok()      { echo -e "  ${TEAL}✓${RESET} $1"; }
-warn()    { echo -e "  ${RED}!${RESET} $1"; }
-section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; }
+# interactive runs also leave these lines in the journal: journalctl -t fedora-kde-setup
+journal() { [ ! -t 1 ] || logger -t fedora-kde-setup -- "${0##*/}: $*" 2>/dev/null || true; }
+ok()      { echo -e "  ${TEAL}✓${RESET} $1"; journal "ok: $1"; }
+warn()    { echo -e "  ${RED}!${RESET} $1"; journal "warning: $1"; }
+section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; journal "$1"; }
 confirm() {
     [ "$YES" -eq 1 ] && return 0
     [ -t 0 ] || { echo "  not a terminal: pass --yes to run without the confirmation" >&2; exit 1; }
     local reply
     read -rp "  Continue? [y/N] " reply
     [[ $reply == [yY]* ]] || { echo "  stopped, nothing changed"; exit 1; }
+}
+
+# true when the file changed after the unit last started, so a restart an interrupted run missed still happens
+newer_than_start() {  # unit file
+    local started
+    started=$(systemctl show "$1" -p ActiveEnterTimestamp --timestamp=unix --value 2>/dev/null) || return 1
+    started=${started#@}
+    [[ $started =~ ^[0-9]+$ ]] && [ "$(stat -c %Y "$2")" -gt "$started" ]
 }
 
 # Retire obsolete deployments only when they still match the repository copy.
@@ -71,15 +81,23 @@ confirm
 
 section "Restore point"
 # /etc is in the root snapshot, /boot (kernel arguments) is not
-if snap=$(sudo snapper -c root create --description "before apply-system.sh" --cleanup-algorithm number --print-number 2>/dev/null); then
+snap_err=$(mktemp)
+if snap=$(sudo snapper -c root create --description "before apply-system.sh" --cleanup-algorithm number --print-number 2>"$snap_err"); then
     ok "snapper root snapshot $snap (sudo snapper -c root status $snap..0 lists what this run changed)"
 else
-    warn "no snapper root config yet: no restore point"
+    warn "no restore point: $(head -n 1 "$snap_err" || true)"
 fi
+rm -f "$snap_err"
 
 section "NVIDIA"
 if [ -n "$NVIDIA_BRANCH" ]; then
     sudo cp system/nvidia-performance.conf /etc/modprobe.d/nvidia-performance.conf
+    # 615's open module keeps the saved video memory in RAM; 580xx would put it on a /tmp of half the RAM
+    if [ "$NVIDIA_BRANCH" = 580xx ]; then
+        sudo cp system/nvidia-580xx-storage.conf /etc/modprobe.d/nvidia-580xx-storage.conf
+    else
+        retire system/nvidia-580xx-storage.conf /etc/modprobe.d/nvidia-580xx-storage.conf
+    fi
     sudo mkdir -p /usr/local/bin
     sudo cp system/nvidia-vram-check.sh /usr/local/bin/nvidia-vram-check.sh
     sudo chmod 755 /usr/local/bin/nvidia-vram-check.sh
@@ -108,6 +126,7 @@ else
         retire system/nvidia-vram-check.sh /usr/local/bin/nvidia-vram-check.sh
     fi
     retire system/nvidia-performance.conf /etc/modprobe.d/nvidia-performance.conf
+    retire system/nvidia-580xx-storage.conf /etc/modprobe.d/nvidia-580xx-storage.conf
     retire system/nvidia-wayland.conf /etc/environment.d/nvidia-wayland.conf
     ok "no NVIDIA driver in use — skipped"
 fi
@@ -131,16 +150,18 @@ ok "Kernel parameters set for a $FORM_FACTOR (takes effect on next boot)"
 
 section "SCX scheduler"
 sudo mkdir -p /etc/scx_loader
-scx_before=$(cat /etc/scx_loader/config.toml 2>/dev/null || true)
+# copied only on change, so the file's age tells whether the running loader has read it
 if [ "$FORM_FACTOR" = laptop ]; then
-    sudo cp system/scx_loader-laptop.toml /etc/scx_loader/config.toml
+    cmp -s system/scx_loader-laptop.toml /etc/scx_loader/config.toml ||
+        sudo cp system/scx_loader-laptop.toml /etc/scx_loader/config.toml
     ok "scx_loader-laptop.toml (scx_lavd, Auto mode)"
 else
-    sudo cp system/scx_loader.toml /etc/scx_loader/config.toml
+    cmp -s system/scx_loader.toml /etc/scx_loader/config.toml ||
+        sudo cp system/scx_loader.toml /etc/scx_loader/config.toml
     ok "scx_loader.toml (scx_lavd, Gaming mode)"
 fi
 # scx_loader reads its config only when it starts
-if [ "$scx_before" != "$(cat /etc/scx_loader/config.toml)" ] && systemctl is-active -q scx_loader; then
+if systemctl is-active -q scx_loader && newer_than_start scx_loader /etc/scx_loader/config.toml; then
     sudo systemctl restart scx_loader
     ok "scx_loader restarted on the new config"
 fi
@@ -182,9 +203,10 @@ ok "USB sleep hook, KDE display sleep service and USB autosuspend service"
 
 section "DNS hardening"
 sudo mkdir -p /etc/systemd/resolved.conf.d
-# a restart drops the per-link DNS a VPN or Tailscale set, so only restart on change
-if ! cmp -s system/resolved-hardening.conf /etc/systemd/resolved.conf.d/hardening.conf; then
+# a restart drops the per-link DNS a VPN or Tailscale set, so only restart when resolved has not read the file
+cmp -s system/resolved-hardening.conf /etc/systemd/resolved.conf.d/hardening.conf ||
     sudo cp system/resolved-hardening.conf /etc/systemd/resolved.conf.d/hardening.conf
+if newer_than_start systemd-resolved /etc/systemd/resolved.conf.d/hardening.conf; then
     sudo systemctl restart systemd-resolved
 fi
 ok "resolved-hardening.conf (Quad9 fallback, opportunistic DNSSEC/DoT)"

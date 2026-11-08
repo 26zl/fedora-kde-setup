@@ -1,0 +1,11 @@
+name: Feature request
+description: Something the setup should do, check or document
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What and why
+      description: The change, and the problem it solves on your machine.
+    validations:
+      required: true

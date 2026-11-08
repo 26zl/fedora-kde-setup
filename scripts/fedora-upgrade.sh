@@ -1,6 +1,6 @@
 #!/bin/bash
-# Upgrade to the next Fedora release (44 -> 45 when run on 44). Updates the current
-# release, checks the machine, takes a snapper snapshot of / and downloads the
+# Upgrade to the next Fedora release (45 -> 46 when run on 45). Checks the machine,
+# updates the current release, takes a snapper snapshot of / and downloads the
 # upgrade; it does not reboot. Start the upgrade with `sudo dnf system-upgrade reboot`
 # and run scripts/verify-setup.sh on the first boot of the new release.
 # Run as regular user — sudo is called where needed; --yes answers the --allowerasing
@@ -33,9 +33,11 @@ RED='\033[38;2;170;28;28m'
 RESET='\033[0m'
 if [ ! -t 1 ] || [ -n "${NO_COLOR-}" ]; then TEAL='' RED='' RESET=''; fi
 
-ok()      { echo -e "  ${TEAL}✓${RESET} $1"; }
-warn()    { echo -e "  ${RED}!${RESET} $1"; }
-section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; }
+# interactive runs also leave these lines in the journal: journalctl -t fedora-kde-setup
+journal() { [ ! -t 1 ] || logger -t fedora-kde-setup -- "${0##*/}: $*" 2>/dev/null || true; }
+ok()      { echo -e "  ${TEAL}✓${RESET} $1"; journal "ok: $1"; }
+warn()    { echo -e "  ${RED}!${RESET} $1"; journal "warning: $1"; }
+section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; journal "$1"; }
 
 current=$(rpm -E %fedora)
 target=$((current + 1))
@@ -49,15 +51,6 @@ case "$status" in
     404) warn "Fedora $target is not released yet"; exit 1 ;;
     *)   warn "cannot reach dl.fedoraproject.org (HTTP ${status:-none})"; exit 1 ;;
 esac
-
-section "Fedora $current up to date"
-sudo dnf upgrade --refresh -y
-newest=$(rpm -q kernel-core --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -V | tail -n 1)
-if [ "$newest" != "$(uname -r)" ]; then
-    warn "kernel $newest is installed but $(uname -r) is running: reboot and run this again"
-    exit 1
-fi
-ok "running the newest kernel ($newest)"
 
 section "Preflight"
 root_free=$(df --output=avail -BG / | tail -n 1 | tr -dc 0-9)
@@ -95,31 +88,87 @@ else
     warn "cannot read failed systemd units; compare their state manually after upgrading"
 fi
 
+section "Fedora $current up to date"
+sudo dnf upgrade --refresh -y
+newest=$(rpm -q kernel-core --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -V | tail -n 1)
+if [ "$newest" != "$(uname -r)" ]; then
+    warn "kernel $newest is installed but $(uname -r) is running: reboot and run this again"
+    exit 1
+fi
+ok "running the newest kernel ($newest)"
+
 section "Restore point"
-if snap=$(sudo snapper -c root create --description "before Fedora $target" --userdata important=yes \
-    --cleanup-algorithm number --print-number 2>/dev/null); then
+if ! sudo snapper list-configs 2>/dev/null | awk '{print $1}' | grep -qx root; then
+    warn "no snapper root config: no restore point"
+elif snap=$(sudo snapper -c root create --description "before Fedora $target" --userdata important=yes \
+    --cleanup-algorithm number --print-number); then
     ok "snapper root snapshot $snap; /boot is not in it, the Fedora $current kernel stays as a boot entry"
 else
-    warn "no snapper root config: no restore point"
+    warn "snapper has a root config but took no snapshot (see above); fix that before upgrading"
+    exit 1
 fi
 
 section "Download"
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT
-# Offer --allowerasing only after dependency resolution fails; dnf previews removals.
+# a third-party repo without a build for the new release must not stop the download
+dnf_opts=(--releasever="$target" --setopt=skip_if_unavailable=True)
+resolve() {  # dnf options...; dnf's output lands in $log
+    # the log is parsed, so dnf must not translate its messages
+    # shellcheck disable=SC2024  # the log is this user's own temp file
+    LC_ALL=C sudo dnf system-upgrade download "${dnf_opts[@]}" "$@" --assumeno >"$log" 2>&1 || true
+    ! grep -q 'Failed to resolve the transaction' "$log"
+}
+# Package names out of dnf's problem lines: the installed package it cannot upgrade, or the
+# Fedora N+1 build whose own requirement is unmet.
+problem_packages() {  # installed|broken
+    case $1 in
+        installed) grep -oE 'installed package [^ ]+|- [^ ]+ does not belong to a distupgrade repository' "$log" |
+                       awk '{print ($1 == "-") ? $2 : $3}' ;;
+        broken)    grep -oE 'needed by [^ ]+ from' "$log" | awk '{print $3}' ;;
+    esac | sed -E 's/\.[a-z0-9_]+$//; s/-[^-]+-[^-]+$//' | sort -u
+}
 echo "  resolving the Fedora $target transaction (fetches its metadata first)..."
-# shellcheck disable=SC2024  # the log is this user's own temp file
-sudo dnf system-upgrade download --releasever="$target" --assumeno >"$log" 2>&1 || true
-erasing=()
-if grep -q 'Failed to resolve the transaction' "$log"; then
-    grep -oE 'installed package [^ ]+' "$log" | sort -u | sed 's/^installed package /  blocked by: /'
-    warn "these have no build for Fedora $target yet; --allowerasing removes them,"
-    warn "and they can be reinstalled once their repository catches up"
-    if [ "$YES" -eq 1 ]; then reply=y; else read -rp "  Continue with --allowerasing? [y/N] " reply || reply=""; fi
-    [[ $reply == [yY]* ]] || { warn "stopped before downloading Fedora $target; Fedora $current stays as it is"; exit 1; }
-    erasing=(--allowerasing)
+extra=() removed=()
+resolved=0
+resolve && resolved=1
+# dnf names this option itself when a file requirement needs more than the primary metadata
+if [ "$resolved" -eq 0 ] && grep -q 'optional_metadata_types=filelists' "$log"; then
+    dnf_opts+=("--setopt=optional_metadata_types=comps,filelists,updateinfo")
+    resolve && resolved=1
 fi
-sudo dnf system-upgrade download --releasever="$target" "${erasing[@]}"
+if [ "$resolved" -eq 0 ]; then
+    # excluding an N+1 build with unmet requirements lets --allowerasing drop the installed copy instead
+    for name in $(problem_packages broken); do
+        warn "$name: its Fedora $target build cannot be installed; excluded, the installed copy is removed"
+        extra+=(--exclude="$name")
+        removed+=("$name")
+    done
+    for name in $(problem_packages installed); do
+        [[ " ${removed[*]} " == *" $name "* ]] && continue
+        if sudo dnf -q repoquery --releasever="$target" --available "$name" 2>/dev/null | grep -q .; then
+            warn "$name: cannot be upgraded as things stand; dnf's reasons follow if this stays unresolved"
+        else
+            warn "$name: no build for Fedora $target yet; --allowerasing removes it"
+            removed+=("$name")
+        fi
+    done
+    for name in "${removed[@]}"; do
+        if [[ $name == *-release ]]; then
+            warn "$name carries its repository's .repo files: that repository is off after the reboot until $name is back"
+        fi
+    done
+    extra+=(--allowerasing)
+    if ! resolve "${extra[@]}"; then
+        sed -n '/Failed to resolve the transaction/,$p' "$log" | sed 's/^/    /'
+        warn "unresolved even with ${extra[*]}; fix the problems above, or exclude a package yourself:"
+        warn "sudo dnf system-upgrade download ${dnf_opts[*]} --allowerasing --exclude=<name>"
+        exit 1
+    fi
+    if [ "$YES" -eq 1 ]; then reply=y; else read -rp "  Continue with ${extra[*]}? [y/N] " reply || reply=""; fi
+    [[ $reply == [yY]* ]] || { warn "stopped before downloading Fedora $target; Fedora $current stays as it is"; exit 1; }
+fi
+sudo dnf system-upgrade download "${dnf_opts[@]}" "${extra[@]}"
 
 section "Next"
 ok "Fedora $target is downloaded"
@@ -127,3 +176,13 @@ echo "  1. sudo dnf system-upgrade reboot   runs the upgrade offline; with NVIDI
 echo "                                      boot rebuilds the module before the login screen"
 echo "  2. bash scripts/verify-setup.sh     on the first boot of Fedora $target"
 echo "  3. bash scripts/apply-system.sh     if verify-setup.sh reports drift or .rpmnew files"
+[ ${#removed[@]} -eq 0 ] || echo "  4. reinstall what the upgrade removed:"
+for name in "${removed[@]}"; do
+    case $name in
+        rpmfusion-free-release | rpmfusion-nonfree-release)
+            part=${name#rpmfusion-}
+            echo "     sudo dnf install https://download1.rpmfusion.org/${part%-release}/fedora/$name-$target.noarch.rpm" ;;
+        *-release) echo "     $name: from its project's install instructions for Fedora $target" ;;
+        *) echo "     sudo dnf install $name   once its repository has a Fedora $target build" ;;
+    esac
+done

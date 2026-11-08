@@ -30,7 +30,10 @@ jobs:
       - name: Check no hardcoded private IPs in configs
         run: |
           if grep -rE '(192\.168\.[0-9]+\.[0-9]+|10\.[0-9]+\.[0-9]+\.[0-9]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+)' \
-            --include="*.conf" --include="*.toml" --include="*.sh" --include="*.desktop" .; then
+            --include="*.conf" --include="*.toml" --include="*.sh" --include="*.desktop" --include="*.rules" \
+            --include="*.service" --include="*.json" --include="*.jsonc" --include="*.fish" --include="*.actions" \
+            --include="*.quirks" --include="*.xml" --include="*.kvconfig" --include="*.colors" --include="*.example" \
+            --include="bashrc" .; then
             echo "WARNING: Hardcoded private IP found — remove before committing"
             exit 1
           fi
@@ -48,6 +51,13 @@ jobs:
           for f in $(find . -name "*.xml" -not -path "./.git/*"); do
             echo "Validating $f"
             python3 -c "import xml.etree.ElementTree as ET; ET.parse('$f')" && echo "  OK" || exit 1
+          done
+
+      - name: Validate JSON files
+        run: |
+          for f in $(find . -name "*.json" -not -path "./.git/*"); do
+            echo "Validating $f"
+            python3 -c "import json; json.load(open('$f'))" && echo "  OK" || exit 1
           done
 
       - name: Validate udev rules
@@ -83,6 +93,11 @@ jobs:
       - name: Run the helper script tests
         run: bash tests/helper-scripts.sh
 
+      - name: Run the setup and Ollama installer tests
+        run: |
+          bash tests/fedora-setup.sh
+          bash tests/ollama-setup.sh
+
       - name: Run the user configuration backup tests
         run: bash tests/setup-configs.sh
 
@@ -106,9 +121,9 @@ jobs:
       - name: Check every system/ file is deployed by apply-system.sh
         run: |
           missing=0
+          deployed=$(awk '$1=="sudo" && $2=="cp" {print $3}' scripts/apply-system.sh)
           for f in system/*; do
-            base=$(basename "$f")
-            grep -qF "$base" scripts/apply-system.sh || { echo "NOT DEPLOYED by apply-system.sh: $f"; missing=1; }
+            grep -qxF "$f" <<<"$deployed" || { echo "NOT DEPLOYED by apply-system.sh: $f"; missing=1; }
           done
           exit $missing
 
@@ -116,7 +131,8 @@ jobs:
     name: Check every package the scripts install exists
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    container: registry.fedoraproject.org/fedora:44
+    # by tag on purpose: the job checks what a current Fedora 45 install resolves
+    container: registry.fedoraproject.org/fedora:45
 
     steps:
       - name: Checkout
@@ -127,15 +143,13 @@ jobs:
       - name: Add the repos and resolve every package
         run: bash tests/check-packages.sh
 
-  # Same check against the upcoming release. Missing packages are warnings: they show which
-  # third-party repos still lag before the upgrade. Any other failure turns the job red,
-  # still without blocking merges.
+  # The upcoming release: lagging repos show as warnings, other failures turn the job red, nothing blocks merges.
   packages-next:
     name: Check every package on the next Fedora release
     runs-on: ubuntu-latest
     timeout-minutes: 30
     continue-on-error: true
-    container: registry.fedoraproject.org/fedora:45
+    container: registry.fedoraproject.org/fedora:46
 
     steps:
       - name: Checkout

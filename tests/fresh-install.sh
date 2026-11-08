@@ -3,12 +3,12 @@
 # Commands that need a booted system are stubbed; filesystem changes are real.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
-image=registry.fedoraproject.org/fedora:44
+image=registry.fedoraproject.org/fedora:45
 
 if [ "${1-}" != --inside ]; then
     engine=$(command -v podman || command -v docker) || { echo "needs podman or docker" >&2; exit 2; }
     failed=0
-    for target in desktop laptop readme setup-gate; do
+    for target in desktop desktop-580xx laptop readme setup-gate; do
         echo "==> $target"
         # a local setup.conf would override the hardware under test
         # shellcheck disable=SC2016  # $0 is expanded by the container's shell
@@ -44,6 +44,7 @@ case $2 in
         expect_wp() { [ "$(kreadconfig6 "${greeter[@]}")" = "$1" ] || { echo "FAILED: $2" >&2; exit 1; }; }
         apply yes
         expect_wp file:///usr/share/wallpapers/custom/wallpaper.jpg "the login screen wallpaper was not set"
+        [ ! -e /etc/modprobe.d/nvidia-580xx-storage.conf ] || { echo "FAILED: the current driver got the 580xx store" >&2; exit 1; }
         apply no >/dev/null
         expect_wp "" "RICE=no left the login screen wallpaper in place"
         [ ! -e /usr/share/wallpapers/custom/wallpaper.jpg ] || { echo "FAILED: RICE=no kept the wallpaper copy" >&2; exit 1; }
@@ -52,6 +53,11 @@ case $2 in
         apply no >/dev/null
         expect_wp file:///var/lib/plasmalogin/wallpapers/own.jpg "a wallpaper chosen in System Settings was replaced"
         echo "apply-system.sh: login screen wallpaper set, removed with RICE=no, and a chosen one kept"
+        ;;
+    desktop-580xx)
+        FORM_FACTOR=desktop NVIDIA_DRIVER=580xx bash scripts/apply-system.sh --yes
+        grep -q 'NVreg_TemporaryFilePath=/var/tmp' /etc/modprobe.d/nvidia-580xx-storage.conf ||
+            { echo "FAILED: 580xx keeps its suspend store on the /tmp tmpfs" >&2; exit 1; }
         ;;
     laptop) FORM_FACTOR=laptop NVIDIA_DRIVER=none bash scripts/apply-system.sh --yes ;;
     readme)
@@ -71,8 +77,9 @@ case $2 in
         ;;
     setup-gate)
         # Noninteractive setup must stop at confirmation before the first sudo call.
-        if bash scripts/fedora-setup.sh </dev/null >/dev/null 2>&1; then
-            echo "FAILED: fedora-setup.sh ran as root" >&2; exit 1
+        out=$(bash scripts/fedora-setup.sh </dev/null 2>&1) && rc=0 || rc=$?
+        if [ "$rc" -eq 0 ] || [[ $out != *"run as a normal user"* ]]; then
+            echo "FAILED: fedora-setup.sh did not refuse root (exit $rc)" >&2; exit 1
         fi
         useradd -m tester && chmod 755 "$stub" "$HW_ROOT"
         out=$(runuser -u tester -- env PATH="$PATH" HW_ROOT="$HW_ROOT" NO_COLOR=1 HOME=/home/tester \
@@ -85,7 +92,7 @@ case $2 in
         for unsupported in architecture release; do
             case $unsupported in
                 architecture) stub_command='uname'; value=aarch64; message="requires x86_64" ;;
-                release) stub_command='rpm'; value=43; message="targets Fedora 44" ;;
+                release) stub_command='rpm'; value=44; message="targets Fedora 45" ;;
             esac
             printf '#!/bin/sh\necho %s\n' "$value" >"$stub/$stub_command"
             chmod +x "$stub/$stub_command"
