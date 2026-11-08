@@ -172,7 +172,8 @@ fi
 if [ -f ~/ES-DE/custom_systems/es_systems.xml ]; then
     if rpm -q emulationstation-de >/dev/null 2>&1; then
         pass "ES-DE installed"
-    elif dnf -q repoquery --available emulationstation-de 2>/dev/null | grep -q .; then
+    # as a user, dnf otherwise waits unseen on a prompt to import a repository's signing key
+    elif dnf -q --assumeno repoquery --available emulationstation-de 2>/dev/null </dev/null | grep -q .; then
         note "ES-DE missing but Terra has it: bash scripts/emulation-setup.sh"
     else
         note "ES-DE missing; Terra has no build for Fedora $(rpm -E %fedora) yet (AppImage from es-de.org meanwhile)"

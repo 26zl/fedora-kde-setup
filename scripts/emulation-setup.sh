@@ -62,7 +62,8 @@ fi
 
 section "ES-DE frontend (Terra repo)"
 # Terra builds ES-DE for a new Fedora release some time after the release ships
-if dnf -q repoquery --available emulationstation-de 2>/dev/null | grep -q .; then
+# as a user, dnf otherwise waits unseen on a prompt to import a repository's signing key
+if dnf -q --assumeno repoquery --available emulationstation-de 2>/dev/null </dev/null | grep -q .; then
     sudo dnf install -y emulationstation-de
     ok "ES-DE installed"
 else

@@ -31,9 +31,12 @@ case $* in
     *--list-ports) echo "${VERIFY_PORTS-}" ;;
 esac
 STUB
-for command in dnf curl; do
-    printf '#!/bin/bash\nexit 1\n' >"$tmp/bin/$command"
-done
+printf '#!/bin/bash\nexit 1\n' >"$tmp/bin/curl"
+cat >"$tmp/bin/dnf" <<'STUB'
+#!/bin/bash
+printf '%s\n' "$*" >>"${VERIFY_DNF_LOG:-/dev/null}"
+exit 1
+STUB
 chmod +x "$tmp/bin/"*
 
 run_probe() {
@@ -61,4 +64,12 @@ export VERIFY_PORTS=8080/tcp
 run_probe available
 expect '→ firewall (public): services=dhcpv6-client; ports=8080/tcp'
 [[ $output != *'✓ firewall'* ]] || { echo 'FAIL: explicit firewall ports were ignored' >&2; exit 1; }
+# a user-run dnf query must not wait on a key import prompt (it hung verify-setup.sh in a terminal)
+mkdir -p "$tmp/home/ES-DE/custom_systems"
+: >"$tmp/home/ES-DE/custom_systems/es_systems.xml"
+: >"$tmp/dnf.log"
+HOME="$tmp/home" VERIFY_DNF_LOG="$tmp/dnf.log" PATH="$tmp/bin:$PATH" HW_ROOT="$tmp/hardware" FORM_FACTOR=laptop \
+    NVIDIA_DRIVER=none NO_COLOR=1 VERIFY_PROBES=available bash "$tmp/repo/scripts/verify-setup.sh" >/dev/null 2>&1 || true
+grep -q 'repoquery' "$tmp/dnf.log" || { echo 'FAIL: the ES-DE query did not run' >&2; exit 1; }
+! grep -v -- '--assumeno' "$tmp/dnf.log" | grep -q . || { echo 'FAIL: a dnf query can wait on a prompt' >&2; exit 1; }
 echo 'All setup verification tests passed.'
