@@ -30,7 +30,7 @@ Check these before running anything, so no script stops halfway:
 | `fedora-upgrade.sh` | At least 10 GB free on `/` and 200 MB on `/boot`; the script checks both before it changes anything. |
 | `strata-setup.sh` | An NVIDIA card, Turing or newer (tested with 12 GB of VRAM). About 86 GB for the model files on a disk outside `/home`, 5 GB for the CUDA toolkit and 1 GB for the checkout. At least 30 GB of RAM: the Coder model holds about 20 GB while loaded, and from 40 GB of RAM the script picks the full model, which needs about 48 GB. |
 | `ollama-setup.sh` | An NVIDIA card and about 14 GB of disk: Ollama 2.5 GB, the model 8.7 GB, the Alpaca app 2.3 GB. With 12 GB of VRAM the model runs almost entirely on the GPU; a smaller card runs part of it on the CPU. |
-| `emulation-setup.sh` | Your own BIOS, firmware and game dumps: the script installs the emulators and nothing else. Optionally a second disk for the ROMs. |
+| `emulation-setup.sh` | About 1.7 GB of disk for ES-DE and the emulators: 0.4 GB of AppImages, 1.3 GB of Flatpaks (RetroArch alone 0.8 GB). On a machine without Flatpak apps, up to 6 GB more for the runtimes they share: KDE 6.10 and 6.11 and Freedesktop 26.08 with their GL drivers. Your own BIOS, firmware and game dumps: the script installs the emulators and nothing else. Optionally a second disk for the ROMs. |
 | `windows-vm-setup.sh` | Virtualization switched on in the firmware setup (AMD SVM or Intel VT-x), at least 16 GB of RAM (the VM gets 8 GiB from 24 GB, else 4 GiB), room on `/` for a VM disk that grows up to 128 GiB, a Windows 11 x64 ISO from Microsoft and a Windows license. |
 
 ## Hardware Support
@@ -62,7 +62,7 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 ├── configs/
 │   ├── conky/conky.conf        # Desktop system stats widget
 │   ├── fastfetch/config.jsonc  # fastfetch module layout
-│   ├── es-de/es_systems.xml    # ~/ES-DE/custom_systems/ — standalone emulator defaults
+│   ├── es-de/es_systems.xml    # ~/ES-DE/custom_systems/ — the installed emulator as each system's default
 │   ├── es-de/es_find_rules.xml # ~/ES-DE/custom_systems/ — DuckStation resolves to the pinned AppImage
 │   ├── fish/
 │   │   ├── config.fish         # Fish shell config (aliases, zoxide, starship)
@@ -116,7 +116,7 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   ├── lib/restore.sh          # Pre-install root/home snapshots and verified boot/EFI archives
 │   ├── fedora-setup.sh         # Automated post-upgrade setup (run after the initial system upgrade + reboot)
 │   ├── apply-system.sh         # Deploy system/ files to their system paths
-│   ├── emulation-setup.sh      # ES-DE AppImage + standalone emulators (PS1/2/3, GameCube/Wii)
+│   ├── emulation-setup.sh      # ES-DE + one emulator per system, 14 systems — opt-in, ~1.7 GB
 │   ├── strata-setup.sh         # Local LLM (Strata) on the NVIDIA card — opt-in, 85 GB+
 │   ├── ollama-setup.sh         # Local LLM (Ollama) + Alpaca chat GUI — opt-in, ~9 GB
 │   ├── windows-vm-setup.sh     # Windows 11 VM on KVM/libvirt (Secure Boot, TPM, virtio) — opt-in
@@ -957,7 +957,7 @@ Verify the compositor actually runs at the panel's refresh rate with `qdbus-qt6 
 
 ## Emulation
 
-Retro frontend (ES-DE) + standalone emulators. Install with:
+ES-DE as the frontend and one emulator per system, each one ES-DE's default for its system. Install with:
 
 ```bash
 bash scripts/emulation-setup.sh
@@ -965,30 +965,46 @@ bash scripts/emulation-setup.sh
 
 | System | Emulator | Source |
 |---|---|---|
-| PS1 | DuckStation | Official AppImage, pinned version and SHA-256 |
-| PS2 | PCSX2 | Flatpak |
-| PS3 | RPCS3 | Flatpak |
-| SNES / N64 | RetroArch (snes9x / Mupen64Plus-Next cores) | Flatpak |
-| GameCube / Wii | Dolphin | Flatpak |
-| Frontend | ES-DE (EmulationStation Desktop Edition) | Official AppImage, pinned version and SHA-256 |
+| PS1 | DuckStation | Official AppImage |
+| PS2 | PCSX2 | Flathub |
+| PS3 | RPCS3 | Official AppImage |
+| PS4 | shadPS4, SDL build | Official release zip |
+| PSP | PPSSPP | Flathub |
+| SNES | RetroArch with the Snes9x core | Flathub |
+| N64 | RMG (Rosalie's Mupen GUI) | Flathub |
+| DS | melonDS | Flathub |
+| 3DS | Azahar | Flathub |
+| GameCube / Wii | Dolphin | The Dolphin team's Flatpak repository |
+| Wii U | Cemu | Flathub |
+| Dreamcast | Flycast | Flathub |
+| Xbox 360 | Xenia Edge | Official AppImage |
+| Frontend | ES-DE (EmulationStation Desktop Edition) | Official AppImage |
 
-ES-DE comes from [es-de.org](https://es-de.org/)'s own Linux build, an AppImage: `emulation-setup.sh` installs ES-DE 3.5.0 to `~/Applications/ES-DE_x64.AppImage` once its SHA-256 matches the pin, and adds it to the menu under Games. The Terra RPM it replaces arrived weeks after each new Fedora release, and Fedora 45 had none. ES-DE's own updater can move the AppImage to a newer release; running the script again puts the pinned one back.
+Every AppImage and the shadPS4 zip is pinned by version and SHA-256 and checked before anything is installed; nothing downloaded runs during setup. They go to `~/Applications`, where ES-DE's own find rules look for them, and ES-DE and RPCS3 get a menu entry under Games. ES-DE comes from [es-de.org](https://es-de.org/)'s own Linux build: the Terra RPM it replaced arrived weeks after each new Fedora release, and Fedora 45 had none. The built-in updaters of ES-DE, DuckStation and RPCS3 can move them to newer builds; running the script again puts the pinned ones back. Xenia Edge has no stable channel, only a release per commit, so its pin is one commit's build. Vita3K (PS Vita) is left out: it publishes only a `continuous` build that is replaced in place, which no hash can pin. Disk space is in [Requirements](#requirements).
 
-### Default emulators (standalone, not libretro)
+### Default emulators
 
-ES-DE defaults each system to a libretro core, but only the standalone emulators are installed — launching a game otherwise errors with `couldn't find emulator core file <x>_libretro.so`. `configs/es-de/es_systems.xml` (deployed to `~/ES-DE/custom_systems/`) overrides the default to the standalone emulator per system (psx → DuckStation, ps2 → PCSX2, ps3 → RPCS3, gc and wii → Dolphin). A custom `es_find_rules.xml` resolves `%EMULATOR_DUCKSTATION%` to `~/Applications/DuckStation-x64.AppImage` alone: ES-DE's bundled rule looks for `duckstation`, `duckstation-qt` and `org.duckstation.DuckStation` on the PATH before any AppImage, so a distro package or an old Flatpak there would win. Existing custom XML is kept as a numbered backup.
+ES-DE starts most of these systems in a RetroArch core unless told otherwise, and only the emulators above are installed: a game would fail with `couldn't find emulator core file <x>_libretro.so`. `configs/es-de/es_systems.xml` (deployed to `~/ES-DE/custom_systems/`) holds ES-DE 3.5.0's own entries for psx, ps2, ps3, psp, n64, nds, n3ds, gc, wii, dreamcast and xbox360 with the installed emulator moved first, so the file extensions and the alternative emulators stay ES-DE's. ps3 starts game folders (`RPCS3 Directory`) instead of ES-DE's per-game shortcut files, and xbox360 starts Xenia Edge instead of ES-DE's default, Xenia Canary. snes, wiiu and ps4 keep ES-DE's own defaults: the Snes9x core, Cemu, and a shortcut file per PS4 game. A custom `es_find_rules.xml` resolves `%EMULATOR_DUCKSTATION%` to `~/Applications/DuckStation-x64.AppImage` alone: ES-DE's bundled rule looks for `duckstation`, `duckstation-qt` and `org.duckstation.DuckStation` on the PATH before any AppImage, so a distro package or an old Flatpak there would win. Existing custom XML is kept as a numbered backup.
+
+Coming from the earlier PCSX2/RPCS3/Dolphin/RetroArch setup, the script also:
+
+- **RPCS3**: moves the Flatpak's data (`~/.var/app/net.rpcs3.RPCS3/config/rpcs3`: firmware, installed games, saves) to `~/.config/rpcs3`, where the AppImage keeps it, then removes the Flatpak. It moves only by renaming within one filesystem, only while `~/.config/rpcs3` is absent and only with the Flatpak closed; otherwise it says why and leaves the Flatpak installed. The uninstall keeps the rest of `~/.var/app/net.rpcs3.RPCS3`, the shader cache among it.
+- **Dolphin**: reinstalls a Flathub Dolphin from Dolphin's own repository. The app ID is the same, so settings and saves in `~/.var/app/org.DolphinEmu.dolphin-emu` stay.
+- **RetroArch**: removes the Mupen64Plus-Next core, which these steps used to name for N64.
 
 ### BIOS / firmware / ROMs (user-provided)
 
-Not shipped — provide your own:
+Not shipped — provide your own dumps:
 
-- **ROMs** → `~/Emulation/roms/<system>/` (`psx`, `ps2`, `ps3`, `snes`, `n64`, `gc`, `wii`). Set ES-DE's ROM directory here.
+- **ROMs** → `~/Emulation/roms/<system>/` (`psx`, `ps2`, `ps3`, `ps4`, `psp`, `snes`, `n64`, `nds`, `n3ds`, `gc`, `wii`, `wiiu`, `dreamcast`, `xbox360`). Set ES-DE's ROM directory here.
 - **PS1 BIOS** → `${XDG_DATA_HOME:-$HOME/.local/share}/duckstation/bios`.
 - **PS2 BIOS** → PCSX2's `bios/` folder under `~/.var/app/net.pcsx2.PCSX2/`.
-- **PS3 firmware** → RPCS3 → File → Install Firmware (`PS3UPDAT.PUP` from Sony).
-- **SNES/N64 cores** → RetroArch → Online Updater → Update Installed Cores.
+- **PS3 firmware** → RPCS3 (in the menu) → File → Install Firmware (`PS3UPDAT.PUP` from Sony).
+- **PS4 games** → keep the game folders outside `~/Emulation/roms` and put one `.desktop` shortcut per game in `roms/ps4`: `[Desktop Entry]`, `Type=Application`, `Name=<game>` and `Exec="/home/<you>/Applications/Shadps4-sdl.AppImage" "/path/to/<game>/eboot.bin"`. The SDL build has no game list to make shortcuts from; [ES-DE's user guide](https://gitlab.com/es-de/emulationstation-de/-/blob/v3.5.0/USERGUIDE.md#sony-playstation-4) describes this and the two other ways.
+- **Wii U games** → install them in Cemu with their updates, then Tools → Title Manager → right-click a game → Convert to compressed Wii U archive (.wua), saved to `roms/wiiu`.
+- **SNES core** → RetroArch → Online Updater → Core Downloader → Nintendo - SNES / SFC (Snes9x - Current).
 
-> ROMs on a separate disk: move `~/Emulation/roms` to the disk and symlink it back, then grant the emulator Flatpaks access to that path (`flatpak override --user --filesystem=<path> <id>`).
+> ROMs on a separate disk: move `~/Emulation/roms` to the disk and symlink it back, then run the script again. It grants the emulator Flatpaks the link's target as well as `~/Emulation`.
 
 DuckStation uses the unmodified official `v0.1-12442` AppImage. Both the executable and
 the license are checked against pinned SHA-256 values before replacement. Its separate
@@ -1089,7 +1105,7 @@ GitHub CLI login and a git identity derived from it: installs `gh`, logs in thro
 
 ### `scripts/emulation-setup.sh`
 
-Retro emulation setup — installs ES-DE (official AppImage) and the standalone emulators (PS1/PS2/PS3, GameCube/Wii), grants Flatpak ROM access, and deploys the standalone-emulator defaults. BIOS/firmware/ROMs are user-provided (see the printed manual steps).
+Retro emulation setup — installs ES-DE and one emulator per system (pinned official AppImages, Flathub, and Dolphin's own Flatpak repository), moves an RPCS3 Flatpak's data to the AppImage, grants the Flatpaks ROM access, and makes each emulator ES-DE's default for its system. BIOS/firmware/ROMs are user-provided (see the printed manual steps). See [Emulation](#emulation).
 
 ### `scripts/strata-setup.sh`
 
@@ -1204,7 +1220,7 @@ Run in a terminal, the scripts that change the system leave their ✓ and ! line
 - **Terminal extras**: `fedora-setup.sh` installs lazygit to `/usr/local/bin`, ble.sh to `~/.local/share/blesh`, the JetBrains Mono Nerd Font to `~/.local/share/fonts/JetBrainsMono`, and the helper scripts to `~/scripts`; remove those, then delete the two blocks between the `# >>> fedora-kde-setup` and `# <<< fedora-kde-setup` markers from `~/.bashrc`, or restore `~/.bashrc.orig`.
 - **Ollama** (`scripts/ollama-setup.sh`): `sudo systemctl disable --now ollama`, then remove `/etc/systemd/system/ollama.service` and its `.d` drop-ins, `/usr/local/bin/ollama`, `/usr/local/lib/ollama`, `/var/lib/ollama`, the `ollama` user and group, and the GUI with `flatpak uninstall com.jeffser.Alpaca`.
 - **Strata** (`scripts/strata-setup.sh`): remove the checkout (`~/Prosjekter/Strata`), the model files (`/mnt/data/Strata-data` or your `STRATA_DATA`), the CUDA repo `/etc/yum.repos.d/cuda-fedora44.repo`, and `sudo dnf remove cuda-toolkit-13-4`.
-- **Emulation** (`scripts/emulation-setup.sh`): `flatpak uninstall` the Flatpak emulators, and remove `~/Applications/ES-DE_x64.AppImage`, `~/.local/share/applications/es-de.desktop` and `~/Applications/DuckStation-x64.AppImage` plus its license/source sidecars (`sudo dnf remove emulationstation-de` for an ES-DE from Terra). Restore the numbered backups of `~/ES-DE/custom_systems/es_systems.xml` and `es_find_rules.xml` if present. ROMs, BIOS files and saves are left alone.
+- **Emulation** (`scripts/emulation-setup.sh`): `flatpak uninstall` the Flatpak emulators and `flatpak remote-delete dolphin`; remove `ES-DE_x64.AppImage`, `DuckStation-x64.AppImage` plus its license/source sidecars, `rpcs3_linux64.AppImage`, `Shadps4-sdl.AppImage` and `xenia_edge_linux.AppImage` from `~/Applications`, and `es-de.desktop` and `rpcs3.desktop` from `~/.local/share/applications` (`sudo dnf remove emulationstation-de` for an ES-DE from Terra). Restore the numbered backups of `~/ES-DE/custom_systems/es_systems.xml` and `es_find_rules.xml` if present. ROMs, BIOS files and saves are left alone, and RPCS3's data stays in `~/.config/rpcs3`.
 - **Windows VM** (`scripts/windows-vm-setup.sh`): `sudo virsh undefine win11 --nvram --tpm --storage vda` removes the VM with its disk, NVRAM and TPM state; delete the ISOs from `/var/lib/libvirt/images` yourself. With `VM_LIBVIRT_GROUP=yes`, leave the group with `sudo gpasswd -d $USER libvirt`. The libvirt packages and the `/var/lib/libvirt/images` subvolume stay, since other VMs may use them.
 
 ---
