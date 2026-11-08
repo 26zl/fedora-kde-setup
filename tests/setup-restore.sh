@@ -33,6 +33,10 @@ case "$1 $2" in
     'subvolume show') exit 0 ;;
     'subvolume list')
         [ "${RESTORE_NESTED:-no}" != yes ] || echo 'ID 300 gen 1 top level 256 path root/var/lib/flatpak'
+        case "${RESTORE_LIBVIRT:-no} ${*: -1}" in
+            'yes '*/home) ;;
+            yes*) echo 'ID 301 gen 1 top level 256 path root/var/lib/libvirt/images' ;;
+        esac
         exit 0 ;;
     'inspect-internal rootid')
         case "$3" in */home) echo 257 ;; *) echo 256 ;; esac ;;
@@ -125,6 +129,11 @@ for scenario in filesystem space archive snapshot nested mount missing; do
     ! grep -q SETUP_MUTATION "$RESTORE_LOG" || fail "$scenario reached a system mutation"
     [ "$(find "$fixture/.fedora-kde-setup-backups" -name READY 2>/dev/null | wc -l)" -eq 0 ] || fail "incomplete backup was announced as ready"
 done
+
+rm -rf "$fixture/.fedora-kde-setup-backups"
+PATH="$stub:$PATH" RESTORE_LIBVIRT=yes bash "$scratch/run-backup.sh" >/dev/null 2>"$scratch/output" ||
+    fail "the VM image subvolume of windows-vm-setup.sh blocked the restore point"
+[ "$(find "$fixture/.fedora-kde-setup-backups" -name READY | wc -l)" -eq 1 ] || fail "no restore point beside the VM image subvolume"
 
 if [ "$EUID" -ne 0 ]; then
     rm -rf "$fixture/.fedora-kde-setup-backups"

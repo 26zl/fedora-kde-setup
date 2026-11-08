@@ -1011,7 +1011,8 @@ bash scripts/windows-vm-setup.sh <Win11 ISO>       # the same, then creates the 
 ```
 
 - **The VM**: UEFI with Secure Boot and Microsoft's keys enrolled, an emulated TPM 2.0 (`swtpm`), the host's CPU model, a virtio disk and network card, a SPICE display, and the Hyper-V enlightenments `virt-install --osinfo win11` adds. It gets 8 GiB of RAM on a machine with 24 GB or more (4 GiB below), half the CPU threads up to 8, and a 128 GiB sparse qcow2 disk; `VM_NAME`, `VM_RAM_MIB`, `VM_CPUS` and `VM_DISK_GIB` override them.
-- **Storage**: on btrfs the script turns an empty `/var/lib/libvirt/images` into its own subvolume without copy-on-write, so snapper's root snapshots never hold on to a changing VM disk (see [Backup — Snapper](#13-backup--snapper-btrfs-snapshots)). The Windows ISO is copied there, because qemu cannot read files under `/home` and libvirt cannot label files on NTFS.
+- **Password prompts**: virt-manager asks for your password to manage the VM. `VM_LIBVIRT_GROUP=yes` adds you to the `libvirt` group instead, which polkit lets manage `qemu:///system` without a password; that is root-equivalent, so it stays opt-in.
+- **Storage**: on btrfs the script turns an empty `/var/lib/libvirt/images` into its own subvolume without copy-on-write, so snapper's root snapshots never hold on to a changing VM disk (see [Backup — Snapper](#13-backup--snapper-btrfs-snapshots)); `fedora-setup.sh`'s restore point leaves it out for the same reason. The Windows ISO is copied there, because qemu cannot read files under `/home` and libvirt cannot label files on NTFS.
 - **Drivers**: the Windows installer has no virtio drivers, so the script downloads the [virtio-win](https://github.com/virtio-win/virtio-win-pkg-scripts) ISO, pinned by version and SHA-256, and attaches it as a second CD.
 - **Windows Setup stays manual**: press a key at "Press any key to boot from CD or DVD"; at "Where do you want to install Windows?" choose **Load driver** and browse the virtio-win CD for `viostor\w11\amd64` (disk), then `NetKVM\w11\amd64` (network). After the first login, run `virtio-win-guest-tools.exe` from the same CD for the display, clipboard and memory balloon drivers.
 - **The ISO** is "Download Windows 11 Disk Image (ISO)" at [microsoft.com/software-download/windows11](https://www.microsoft.com/software-download/windows11).
@@ -1052,7 +1053,7 @@ Local LLM via Ollama — the upstream CUDA build with a hardened unit, the uncen
 
 ### `scripts/windows-vm-setup.sh`
 
-Windows 11 VM on KVM/libvirt — packages, libvirt sockets and group, VM storage outside snapper's snapshots, the pinned virtio-win drivers, and with an ISO the VM itself. Opt-in. See [Windows VM](#windows-vm).
+Windows 11 VM on KVM/libvirt — packages, libvirt sockets, VM storage outside snapper's snapshots, the pinned virtio-win drivers, and with an ISO the VM itself. Opt-in. See [Windows VM](#windows-vm).
 
 ### `scripts/sysinfo.sh` — alias: `sysinfo`
 
@@ -1153,7 +1154,7 @@ pgrep conky && echo "Conky running"
 - **Ollama** (`scripts/ollama-setup.sh`): `sudo systemctl disable --now ollama`, then remove `/etc/systemd/system/ollama.service` and its `.d` drop-ins, `/usr/local/bin/ollama`, `/usr/local/lib/ollama`, `/var/lib/ollama`, the `ollama` user and group, and the GUI with `flatpak uninstall com.jeffser.Alpaca`.
 - **Strata** (`scripts/strata-setup.sh`): remove the checkout (`~/Prosjekter/Strata`), the model files (`/mnt/data/Strata-data`), the CUDA repo `/etc/yum.repos.d/cuda-fedora44.repo`, and `sudo dnf remove cuda-toolkit-13-4`.
 - **Emulation** (`scripts/emulation-setup.sh`): `flatpak uninstall` the Flatpak emulators, `sudo dnf remove emulationstation-de`, and remove `~/Applications/DuckStation-x64.AppImage` plus its license/source sidecars. Restore the numbered backups of `~/ES-DE/custom_systems/es_systems.xml` and `es_find_rules.xml` if present. ROMs, BIOS files and saves are left alone.
-- **Windows VM** (`scripts/windows-vm-setup.sh`): `sudo virsh undefine win11 --nvram --tpm --storage vda` removes the VM with its disk, NVRAM and TPM state; delete the ISOs from `/var/lib/libvirt/images` yourself. The libvirt packages stay, since other VMs may use them.
+- **Windows VM** (`scripts/windows-vm-setup.sh`): `sudo virsh undefine win11 --nvram --tpm --storage vda` removes the VM with its disk, NVRAM and TPM state; delete the ISOs from `/var/lib/libvirt/images` yourself. With `VM_LIBVIRT_GROUP=yes`, leave the group with `sudo gpasswd -d $USER libvirt`. The libvirt packages and the `/var/lib/libvirt/images` subvolume stay, since other VMs may use them.
 
 ---
 

@@ -16,6 +16,7 @@ bash tests/sleep-hooks.sh                                          # KDE sleep l
 bash tests/nvidia-vram.sh                                          # NVIDIA backing-store capacity and failure paths
 bash tests/emulation-setup.sh                                      # pinned downloads and emulator selection
 bash tests/setup-restore.sh                                        # pre-install snapshots and boot archive integrity
+bash tests/windows-vm.sh                                           # Windows VM setup: checks before sudo, the VM definition
 bash tests/fresh-install.sh                                        # deploy steps in throwaway containers (podman or docker)
 ```
 

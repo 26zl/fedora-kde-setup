@@ -4,7 +4,8 @@
 # ISO it also creates the VM and opens its console. Windows Setup itself stays interactive.
 # Run as a regular user; sudo is called where needed after one confirmation.
 #   bash scripts/windows-vm-setup.sh [--yes] [Win11.iso]
-# VM_NAME (win11), VM_RAM_MIB, VM_CPUS and VM_DISK_GIB (128) override the defaults.
+# VM_NAME (win11), VM_RAM_MIB, VM_CPUS and VM_DISK_GIB (128) override the defaults;
+# VM_LIBVIRT_GROUP=yes adds you to the libvirt group, which manages VMs as root without a password.
 
 usage() { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; }
 YES=0 ISO=""
@@ -27,9 +28,11 @@ RED='\033[38;2;170;28;28m'
 RESET='\033[0m'
 if [ ! -t 1 ] || [ -n "${NO_COLOR-}" ]; then TEAL='' RED='' RESET=''; fi
 
-ok()      { echo -e "  ${TEAL}✓${RESET} $1"; }
-warn()    { echo -e "  ${RED}!${RESET} $1"; }
-section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; }
+# interactive runs also leave these lines in the journal: journalctl -t fedora-kde-setup
+journal() { [ ! -t 1 ] || logger -t fedora-kde-setup -- "${0##*/}: $*" 2>/dev/null || true; }
+ok()      { echo -e "  ${TEAL}✓${RESET} $1"; journal "ok: $1"; }
+warn()    { echo -e "  ${RED}!${RESET} $1"; journal "warning: $1"; }
+section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; journal "$1"; }
 
 # fedorapeople publishes no checksum for the ISO; the hash pins the file as first downloaded
 VIRTIO_VERSION=0.1.302
@@ -41,12 +44,14 @@ user=${USER:-$(id -un)}
 mem_mib=$(awk '/^MemTotal:/ {print int($2 / 1024)}' /proc/meminfo)
 threads=$(nproc)
 VM_NAME=${VM_NAME:-win11}
-VM_RAM_MIB=${VM_RAM_MIB:-$((mem_mib >= 24576 ? 8192 : 4096))}
+# MemTotal sits below the installed size, so a 24 GB machine reports less than 24 GiB
+VM_RAM_MIB=${VM_RAM_MIB:-$((mem_mib >= 22528 ? 8192 : 4096))}
 VM_CPUS=${VM_CPUS:-$((threads / 2 > 8 ? 8 : (threads / 2 < 2 ? 2 : threads / 2)))}
 VM_DISK_GIB=${VM_DISK_GIB:-128}
 
 [ -e "${HW_ROOT-}/dev/kvm" ] || { warn "no /dev/kvm: turn on SVM (AMD) or VT-x (Intel) in the firmware setup"; exit 1; }
 [[ $VM_NAME =~ ^[A-Za-z0-9._-]+$ ]] || { warn "VM_NAME may hold only letters, digits, dot, dash and underscore"; exit 1; }
+case ${VM_LIBVIRT_GROUP:-no} in yes | no) ;; *) warn "VM_LIBVIRT_GROUP must be yes or no"; exit 1 ;; esac
 for var in VM_RAM_MIB VM_CPUS VM_DISK_GIB; do
     [[ ${!var} =~ ^[1-9][0-9]*$ ]] || { warn "$var must be a whole number"; exit 1; }
 done
@@ -61,7 +66,11 @@ fi
 
 section "Plan"
 echo "  packages  qemu-kvm, libvirt, virt-install, virt-manager, swtpm, edk2-ovmf"
-echo "  libvirt   daemon sockets and the NAT network on, $user in the libvirt group"
+if [ "${VM_LIBVIRT_GROUP:-no}" = yes ]; then
+    echo "  libvirt   daemon sockets and the NAT network on, $user in the libvirt group (root-equivalent)"
+else
+    echo "  libvirt   daemon sockets and the NAT network on; virt-manager asks for your password"
+fi
 echo "  storage   $IMAGES as its own btrfs subvolume when empty, outside root snapshots"
 echo "  drivers   virtio-win $VIRTIO_VERSION ISO in $IMAGES, SHA-256 checked"
 if [ -n "$ISO" ]; then
@@ -86,9 +95,12 @@ sudo virsh -c "$CONNECT" net-info default | grep -q '^Active:.*yes' || sudo virs
 ok "virtqemud, virtnetworkd and virtstoraged sockets; NAT network \"default\" active"
 if id -nG "$user" | grep -qw libvirt; then
     ok "$user is in the libvirt group"
-else
+elif [ "${VM_LIBVIRT_GROUP:-no}" = yes ]; then
+    # polkit lets the libvirt group manage qemu:///system without a password, which amounts to root
     sudo usermod -aG libvirt "$user"
-    warn "$user added to the libvirt group; log out and in so virt-manager stops asking for a password"
+    warn "$user added to the libvirt group: no more password prompts, and root-equivalent; log out and in"
+else
+    ok "virt-manager asks for your password (VM_LIBVIRT_GROUP=yes skips that and grants root-equivalent access)"
 fi
 
 section "Storage"
@@ -122,7 +134,7 @@ if echo "$VIRTIO_SHA256  $virtio_iso" | sudo sha256sum -c --status - 2>/dev/null
 else
     tmp=$(mktemp -d /var/tmp/windows-vm.XXXXXX)
     trap 'rm -rf "$tmp"' EXIT
-    curl -fL --retry 3 -o "$tmp/virtio-win.iso" "$VIRTIO_URL"
+    curl -fL --connect-timeout 20 --speed-limit 1024 --speed-time 60 --retry 3 -o "$tmp/virtio-win.iso" "$VIRTIO_URL"
     echo "$VIRTIO_SHA256  $tmp/virtio-win.iso" | sha256sum -c --quiet -
     sudo install -m 0644 "$tmp/virtio-win.iso" "$virtio_iso"
     ok "virtio-win $VIRTIO_VERSION downloaded and checked"
@@ -140,9 +152,11 @@ if sudo virsh -c "$CONNECT" dominfo "$VM_NAME" >/dev/null 2>&1; then
     warn "$VM_NAME exists already; open it in virt-manager, or remove it first (README: Undoing Changes)"
     exit 1
 fi
-# qemu cannot search /home and libvirt cannot label files on NTFS, so the ISO goes next to the disk
+# qemu cannot search /home and libvirt cannot label files on NTFS, so the ISO goes next to the disk;
+# the user opens it, so a path swapped after the checks cannot make root copy another file
 install_iso=$IMAGES/${ISO##*/}
-[ "$ISO" = "$install_iso" ] || sudo install -m 0644 "$ISO" "$install_iso"
+# shellcheck disable=SC2024  # the redirect runs as the user on purpose
+[ "$ISO" = "$install_iso" ] || sudo install -m 0644 /dev/stdin "$install_iso" <"$ISO"
 sudo virt-install --connect "$CONNECT" --name "$VM_NAME" --osinfo win11 \
     --memory "$VM_RAM_MIB" --vcpus "$VM_CPUS" --cpu host-passthrough \
     --boot uefi,firmware.feature0.name=secure-boot,firmware.feature0.enabled=yes,firmware.feature1.name=enrolled-keys,firmware.feature1.enabled=yes \
@@ -158,5 +172,5 @@ setsid -f virt-manager --connect "$CONNECT" --show-domain-console "$VM_NAME" >/d
 section "Windows Setup (in the virt-manager window)"
 echo "  1. Press a key at \"Press any key to boot from CD or DVD\"; missed it: Send Key > Ctrl+Alt+Del"
 echo "  2. At \"Where do you want to install Windows?\" choose Load driver and browse the virtio-win CD:"
-echo "     viostor\\w11\\amd64 for the disk, then NetKVM\\w11\\amd64 for the network"
+printf '     %s\n' 'viostor\w11\amd64 for the disk, then NetKVM\w11\amd64 for the network'
 echo "  3. After the first login run virtio-win-guest-tools.exe from the same CD (display, clipboard)"
