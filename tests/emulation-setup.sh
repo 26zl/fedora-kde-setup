@@ -1,5 +1,6 @@
 #!/bin/bash
-# Exercise verified downloads, emulator selection and the RPCS3 Flatpak migration without running downloaded code.
+# Exercise verified downloads, emulator selection and the RPCS3 and DuckStation Flatpak migrations without running
+# downloaded code.
 set -euo pipefail
 [ "$EUID" -ne 0 ] || { echo "Run these fixtures without root." >&2; exit 2; }
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -27,6 +28,12 @@ printf 'Synthetic upstream license fixture.\n' >"$tmp/license.fixture"
 printf 'Corrupt download.\n' >"$tmp/corrupt.fixture"
 printf 'Synthetic PS3 save.\n' >"$tmp/save.fixture"
 printf 'Synthetic memory card.\n' >"$tmp/card.fixture"
+duckstation_fixture="$tmp/duckstation.fixture"
+mkdir -p "$duckstation_fixture/bios" "$duckstation_fixture/memcards" "$duckstation_fixture/cache"
+printf 'Synthetic BIOS.\n' >"$duckstation_fixture/bios/fixture.bin"
+cp "$tmp/card.fixture" "$duckstation_fixture/memcards/fixture.mcd"
+printf '[Main]\nSettingsVersion = 3\n' >"$duckstation_fixture/settings.ini"
+printf 'Synthetic game list cache.\n' >"$duckstation_fixture/cache/gamelist.cache"
 
 # The real pins: a full SHA-256 per download, and URLs that name one fixed build.
 python3 - "$repo/scripts/emulation-setup.sh" <<'PY'
@@ -133,9 +140,9 @@ new_home() {  # NAME: an empty home whose path has spaces
     applications="$test_home/Applications"
     mkdir -p "$test_home"
 }
-run_setup() {
-    env HOME="$test_home" XDG_CONFIG_HOME="$config_home" XDG_DATA_HOME="$test_home/.local/share" \
-        PATH="$stub:$PATH" NO_COLOR=1 bash "$tmp/repo/scripts/emulation-setup.sh"
+run_setup() {  # an empty config_home runs it with XDG_CONFIG_HOME unset
+    env -u XDG_CONFIG_HOME HOME="$test_home" ${config_home:+XDG_CONFIG_HOME="$config_home"} \
+        XDG_DATA_HOME="$test_home/.local/share" PATH="$stub:$PATH" NO_COLOR=1 bash "$tmp/repo/scripts/emulation-setup.sh"
 }
 setup_ok() {
     run_setup >"$tmp/output" 2>&1 || { cat "$tmp/output" >&2; fail "setup failed in ${test_home##*/}"; }
@@ -149,6 +156,18 @@ rpcs3_flatpak_data() {
 kept_flatpak() {  # WHEN: the RPCS3 Flatpak and its data must both be untouched
     ! grep -q '^flatpak uninstall' "$EMULATION_LOG" || fail "the RPCS3 Flatpak was removed $1"
     cmp -s "$tmp/save.fixture" "$flatpak_rpcs3/$save" || fail "the RPCS3 Flatpak's data changed $1"
+}
+duckstation_flatpak_data() {
+    flatpak_duckstation="$test_home/.var/app/org.duckstation.DuckStation/config/duckstation"
+    mkdir -p "${flatpak_duckstation%/*}"
+    cp -a "$duckstation_fixture" "$flatpak_duckstation"
+}
+kept_duckstation_data() {  # WHEN: the DuckStation Flatpak's data must be untouched
+    diff -r "$duckstation_fixture" "$flatpak_duckstation" >/dev/null || fail "the DuckStation Flatpak's data changed $1"
+}
+copied_duckstation_data() {  # DESTINATION
+    diff -r "$duckstation_fixture" "$1" >/dev/null || fail "the DuckStation Flatpak's data was not copied to $1"
+    [ -z "$(find "${1%/*}" -maxdepth 1 -name '.duckstation.*')" ] || fail "the DuckStation copy left its temporary folder"
 }
 flatpak_apps="net.pcsx2.PCSX2 org.libretro.RetroArch com.github.Rosalie241.RMG org.azahar_emu.Azahar org.ppsspp.PPSSPP
               net.kuribo64.melonDS org.flycast.Flycast info.cemu.Cemu org.DolphinEmu.dolphin-emu"
@@ -197,6 +216,7 @@ grep -qxF 'flatpak remote-add --if-not-exists dolphin https://flatpak.dolphin-em
 grep -qxF 'flatpak install -y --reinstall dolphin org.DolphinEmu.dolphin-emu' "$EMULATION_LOG" ||
     fail "Dolphin did not come from its own repository"
 ! grep -q '^flatpak uninstall' "$EMULATION_LOG" || fail "a first install removed a Flatpak"
+[ ! -e "$config_home/duckstation" ] || fail "a DuckStation folder appeared without Flatpak data to copy"
 for app in $flatpak_apps; do
     grep -qxF "flatpak override --user --filesystem=$test_home/Emulation $app" "$EMULATION_LOG" || fail "$app cannot read ~/Emulation"
 done
@@ -238,12 +258,11 @@ PY
 # Coming from the PCSX2/RPCS3/Dolphin/RetroArch Flatpaks and the EOL DuckStation Flatpak.
 new_home upgrade
 rpcs3_flatpak_data
+duckstation_flatpak_data
 cores="$test_home/.var/app/org.libretro.RetroArch/config/retroarch/cores"
-memcard="$test_home/.var/app/org.duckstation.DuckStation/config/duckstation/memcards/fixture.mcd"
-mkdir -p "$cores" "${memcard%/*}" "$test_home/ES-DE/custom_systems"
+mkdir -p "$cores" "$test_home/ES-DE/custom_systems"
 printf 'Synthetic core.\n' >"$cores/mupen64plus_next_libretro.so"
 printf 'Synthetic core.\n' >"$cores/snes9x_libretro.so"
-cp "$tmp/card.fixture" "$memcard"
 printf '<custom-system-fixture/>\n' >"$test_home/ES-DE/custom_systems/es_systems.xml"
 EMULATION_FLATPAKS="net.rpcs3.RPCS3=flathub org.DolphinEmu.dolphin-emu=flathub org.duckstation.DuckStation=flathub" \
     setup_ok
@@ -256,7 +275,9 @@ grep -qxF 'flatpak install -y --reinstall dolphin org.DolphinEmu.dolphin-emu' "$
 [ ! -e "$cores/mupen64plus_next_libretro.so" ] || fail "RetroArch kept an N64 core next to RMG"
 [ -e "$cores/snes9x_libretro.so" ] || fail "the SNES core was removed"
 grep -q 'The old DuckStation Flatpak is still installed' "$tmp/output" || fail "missing old Flatpak migration guidance"
-cmp -s "$tmp/card.fixture" "$memcard" || fail "old Flatpak data was changed"
+kept_duckstation_data "while it was installed"
+copied_duckstation_data "$config_home/duckstation"
+[ ! -e "$test_home/.local/share/duckstation" ] || fail "DuckStation data went to ~/.local/share although XDG_CONFIG_HOME is set"
 [ -f "$test_home/ES-DE/custom_systems/es_systems.xml.~1~" ] || fail "existing ES-DE custom systems were not backed up"
 ! grep -qE '^flatpak (install|override|uninstall).*org\.duckstation\.DuckStation' "$EMULATION_LOG" ||
     fail "old DuckStation Flatpak was installed, modified or removed"
@@ -264,6 +285,7 @@ cmp -s "$tmp/card.fixture" "$memcard" || fail "old Flatpak data was changed"
 EMULATION_FLATPAKS=org.DolphinEmu.dolphin-emu=dolphin setup_ok
 ! grep -q '^flatpak install .*org\.DolphinEmu\.dolphin-emu' "$EMULATION_LOG" || fail "Dolphin from its own repository was installed again"
 [ ! -e "$test_home/ES-DE/custom_systems/es_systems.xml.~2~" ] || fail "unchanged setup created another backup"
+! grep -q '^  ! .*DuckStation' "$tmp/output" || fail "a repeated run warned about the DuckStation data it had copied"
 
 # The RPCS3 Flatpak stays, with its data, whenever its data cannot be moved whole.
 for destination in non-empty empty; do
@@ -306,6 +328,40 @@ new_home no-data
 EMULATION_FLATPAKS=net.rpcs3.RPCS3=flathub setup_ok
 grep -qxF 'flatpak uninstall -y net.rpcs3.RPCS3' "$EMULATION_LOG" || fail "an RPCS3 Flatpak without data stayed installed"
 [ ! -e "$config_home/rpcs3" ] || fail "an RPCS3 folder appeared without data to move"
+
+# The DuckStation Flatpak's data is copied, also after an uninstall, and only into an absent folder; the original stays.
+new_home duckstation-uninstalled
+duckstation_flatpak_data
+config_home=
+setup_ok
+copied_duckstation_data "$test_home/.local/share/duckstation"
+kept_duckstation_data "after the copy"
+[ ! -e "$test_home/.config/duckstation" ] || fail "DuckStation data went to ~/.config without XDG_CONFIG_HOME"
+! grep -q 'The old DuckStation Flatpak is still installed' "$tmp/output" || fail "an uninstalled Flatpak was reported installed"
+new_home duckstation-both
+duckstation_flatpak_data
+mkdir -p "$config_home/duckstation"
+printf 'Synthetic newer settings.\n' >"$config_home/duckstation/settings.ini"
+EMULATION_FLATPAKS=org.duckstation.DuckStation=flathub setup_ok
+kept_duckstation_data "while the AppImage's folder existed"
+[ "$(find "$config_home/duckstation" -mindepth 1 -printf '%P\n')" = settings.ini ] ||
+    fail "data was copied into an existing DuckStation folder"
+grep -q 'and 2 of its' "$tmp/output" || fail "no warning naming the two DuckStation files the AppImage lacks"
+new_home duckstation-running
+duckstation_flatpak_data
+EMULATION_FLATPAKS=org.duckstation.DuckStation=flathub EMULATION_RUNNING=org.duckstation.DuckStation setup_ok
+kept_duckstation_data "while it was running"
+[ ! -e "$config_home/duckstation" ] || fail "DuckStation data was copied while the Flatpak was running"
+grep -q 'The DuckStation Flatpak is running' "$tmp/output" || fail "no warning about the running DuckStation Flatpak"
+new_home duckstation-unreadable
+duckstation_flatpak_data
+chmod 000 "$flatpak_duckstation/memcards/fixture.mcd"
+setup_ok
+chmod 644 "$flatpak_duckstation/memcards/fixture.mcd"
+kept_duckstation_data "after a failed copy"
+[ ! -e "$config_home/duckstation" ] || fail "a failed DuckStation copy left a partial folder"
+[ -z "$(find "$config_home" -maxdepth 1 -name '.duckstation.*')" ] || fail "a failed DuckStation copy left its temporary folder"
+grep -q 'Could not copy' "$tmp/output" || fail "no warning after a failed DuckStation copy"
 
 # ROMs on another disk behind a ~/Emulation/roms link.
 new_home linked-roms

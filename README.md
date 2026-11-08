@@ -986,9 +986,10 @@ Every AppImage and the shadPS4 zip is pinned by version and SHA-256 and checked 
 
 ES-DE starts most of these systems in a RetroArch core unless told otherwise, and only the emulators above are installed: a game would fail with `couldn't find emulator core file <x>_libretro.so`. `configs/es-de/es_systems.xml` (deployed to `~/ES-DE/custom_systems/`) holds ES-DE 3.5.0's own entries for psx, ps2, ps3, psp, n64, nds, n3ds, gc, wii, dreamcast and xbox360 with the installed emulator moved first, so the file extensions and the alternative emulators stay ES-DE's. ps3 starts game folders (`RPCS3 Directory`) instead of ES-DE's per-game shortcut files, and xbox360 starts Xenia Edge instead of ES-DE's default, Xenia Canary. snes, wiiu and ps4 keep ES-DE's own defaults: the Snes9x core, Cemu, and a shortcut file per PS4 game. A custom `es_find_rules.xml` resolves `%EMULATOR_DUCKSTATION%` to `~/Applications/DuckStation-x64.AppImage` alone: ES-DE's bundled rule looks for `duckstation`, `duckstation-qt` and `org.duckstation.DuckStation` on the PATH before any AppImage, so a distro package or an old Flatpak there would win. Existing custom XML is kept as a numbered backup.
 
-Coming from the earlier PCSX2/RPCS3/Dolphin/RetroArch setup, the script also:
+Coming from the earlier PCSX2/RPCS3/Dolphin/RetroArch setup or the EOL DuckStation Flatpak, the script also:
 
 - **RPCS3**: moves the Flatpak's data (`~/.var/app/net.rpcs3.RPCS3/config/rpcs3`: firmware, installed games, saves) to `~/.config/rpcs3`, where the AppImage keeps it, then removes the Flatpak. It moves only by renaming within one filesystem, only while `~/.config/rpcs3` is absent and only with the Flatpak closed; otherwise it says why and leaves the Flatpak installed. The uninstall keeps the rest of `~/.var/app/net.rpcs3.RPCS3`, the shader cache among it.
+- **DuckStation**: copies the Flatpak's data (`~/.var/app/org.duckstation.DuckStation/config/duckstation`: BIOS, memory cards, save states, settings) to `~/.local/share/duckstation`, where the AppImage keeps it (`$XDG_CONFIG_HOME/duckstation` when that variable is set), also when the Flatpak is already uninstalled. It copies only while that folder is absent and the Flatpak closed, into a temporary folder renamed into place, so an interrupted copy leaves nothing behind; the originals stay. If the folder already exists, it copies nothing and says how many of the Flatpak's files are missing there. The Flatpak stays installed: once DuckStation shows your saves, run `flatpak uninstall org.duckstation.DuckStation` without `--delete-data`.
 - **Dolphin**: reinstalls a Flathub Dolphin from Dolphin's own repository. The app ID is the same, so settings and saves in `~/.var/app/org.DolphinEmu.dolphin-emu` stay.
 - **RetroArch**: removes the Mupen64Plus-Next core, which these steps used to name for N64.
 
@@ -997,7 +998,7 @@ Coming from the earlier PCSX2/RPCS3/Dolphin/RetroArch setup, the script also:
 Not shipped — provide your own dumps:
 
 - **ROMs** → `~/Emulation/roms/<system>/` (`psx`, `ps2`, `ps3`, `ps4`, `psp`, `snes`, `n64`, `nds`, `n3ds`, `gc`, `wii`, `wiiu`, `dreamcast`, `xbox360`). Set ES-DE's ROM directory here.
-- **PS1 BIOS** → `${XDG_DATA_HOME:-$HOME/.local/share}/duckstation/bios`.
+- **PS1 BIOS** → `~/.local/share/duckstation/bios`, or `$XDG_CONFIG_HOME/duckstation/bios` when that variable is set.
 - **PS2 BIOS** → PCSX2's `bios/` folder under `~/.var/app/net.pcsx2.PCSX2/`.
 - **PS3 firmware** → RPCS3 (in the menu) → File → Install Firmware (`PS3UPDAT.PUP` from Sony).
 - **PS4 games** → keep the game folders outside `~/Emulation/roms` and put one `.desktop` shortcut per game in `roms/ps4`: `[Desktop Entry]`, `Type=Application`, `Name=<game>` and `Exec="/home/<you>/Applications/Shadps4-sdl.AppImage" "/path/to/<game>/eboot.bin"`. The SDL build has no game list to make shortcuts from; [ES-DE's user guide](https://gitlab.com/es-de/emulationstation-de/-/blob/v3.5.0/USERGUIDE.md#sony-playstation-4) describes this and the two other ways.
@@ -1011,12 +1012,6 @@ the license are checked against pinned SHA-256 values before replacement. Its se
 [CC BY-NC-ND 4.0 license](https://github.com/stenzek/duckstation/blob/dd4a0eb779296a525f8b10b6d9a45911ad6d088f/LICENSE)
 includes noncommercial and no-derivatives conditions; this repository's MIT license
 does not relicense DuckStation. License and source notices are installed alongside it.
-
-An existing EOL DuckStation Flatpak and its data are retained. Close both versions and
-copy its `~/.var/app/org.duckstation.DuckStation/config/duckstation` directory to the
-native data location only if that destination is absent, then re-add game directories.
-Check saves before uninstalling the old Flatpak, and keep its data by omitting
-`--delete-data`. The installer prints these steps and always selects the new AppImage.
 
 ### Controller (DualSense)
 
@@ -1105,7 +1100,7 @@ GitHub CLI login and a git identity derived from it: installs `gh`, logs in thro
 
 ### `scripts/emulation-setup.sh`
 
-Retro emulation setup — installs ES-DE and one emulator per system (pinned official AppImages, Flathub, and Dolphin's own Flatpak repository), moves an RPCS3 Flatpak's data to the AppImage, grants the Flatpaks ROM access, and makes each emulator ES-DE's default for its system. BIOS/firmware/ROMs are user-provided (see the printed manual steps). See [Emulation](#emulation).
+Retro emulation setup — installs ES-DE and one emulator per system (pinned official AppImages, Flathub, and Dolphin's own Flatpak repository), moves an RPCS3 Flatpak's data and copies a DuckStation Flatpak's data to their AppImages, grants the Flatpaks ROM access, and makes each emulator ES-DE's default for its system. BIOS/firmware/ROMs are user-provided (see the printed manual steps). See [Emulation](#emulation).
 
 ### `scripts/strata-setup.sh`
 
@@ -1220,7 +1215,7 @@ Run in a terminal, the scripts that change the system leave their ✓ and ! line
 - **Terminal extras**: `fedora-setup.sh` installs lazygit to `/usr/local/bin`, ble.sh to `~/.local/share/blesh`, the JetBrains Mono Nerd Font to `~/.local/share/fonts/JetBrainsMono`, and the helper scripts to `~/scripts`; remove those, then delete the two blocks between the `# >>> fedora-kde-setup` and `# <<< fedora-kde-setup` markers from `~/.bashrc`, or restore `~/.bashrc.orig`.
 - **Ollama** (`scripts/ollama-setup.sh`): `sudo systemctl disable --now ollama`, then remove `/etc/systemd/system/ollama.service` and its `.d` drop-ins, `/usr/local/bin/ollama`, `/usr/local/lib/ollama`, `/var/lib/ollama`, the `ollama` user and group, and the GUI with `flatpak uninstall com.jeffser.Alpaca`.
 - **Strata** (`scripts/strata-setup.sh`): remove the checkout (`~/Prosjekter/Strata`), the model files (`/mnt/data/Strata-data` or your `STRATA_DATA`), the CUDA repo `/etc/yum.repos.d/cuda-fedora44.repo`, and `sudo dnf remove cuda-toolkit-13-4`.
-- **Emulation** (`scripts/emulation-setup.sh`): `flatpak uninstall` the Flatpak emulators and `flatpak remote-delete dolphin`; remove `ES-DE_x64.AppImage`, `DuckStation-x64.AppImage` plus its license/source sidecars, `rpcs3_linux64.AppImage`, `Shadps4-sdl.AppImage` and `xenia_edge_linux.AppImage` from `~/Applications`, and `es-de.desktop` and `rpcs3.desktop` from `~/.local/share/applications` (`sudo dnf remove emulationstation-de` for an ES-DE from Terra). Restore the numbered backups of `~/ES-DE/custom_systems/es_systems.xml` and `es_find_rules.xml` if present. ROMs, BIOS files and saves are left alone, and RPCS3's data stays in `~/.config/rpcs3`.
+- **Emulation** (`scripts/emulation-setup.sh`): `flatpak uninstall` the Flatpak emulators and `flatpak remote-delete dolphin`; remove `ES-DE_x64.AppImage`, `DuckStation-x64.AppImage` plus its license/source sidecars, `rpcs3_linux64.AppImage`, `Shadps4-sdl.AppImage` and `xenia_edge_linux.AppImage` from `~/Applications`, and `es-de.desktop` and `rpcs3.desktop` from `~/.local/share/applications` (`sudo dnf remove emulationstation-de` for an ES-DE from Terra). Restore the numbered backups of `~/ES-DE/custom_systems/es_systems.xml` and `es_find_rules.xml` if present. ROMs, BIOS files and saves are left alone: RPCS3's data stays in `~/.config/rpcs3` and DuckStation's in `~/.local/share/duckstation`.
 - **Windows VM** (`scripts/windows-vm-setup.sh`): `sudo virsh undefine win11 --nvram --tpm --storage vda` removes the VM with its disk, NVRAM and TPM state; delete the ISOs from `/var/lib/libvirt/images` yourself. With `VM_LIBVIRT_GROUP=yes`, leave the group with `sudo gpasswd -d $USER libvirt`. The libvirt packages and the `/var/lib/libvirt/images` subvolume stay, since other VMs may use them.
 
 ---

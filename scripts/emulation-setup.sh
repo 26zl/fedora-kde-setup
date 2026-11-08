@@ -108,12 +108,41 @@ mv -fT "$staging/DuckStation-LICENSE.txt" "$applications/DuckStation-LICENSE.txt
 mv -fT "$staging/DuckStation-SOURCE.txt" "$applications/DuckStation-SOURCE.txt"
 install_appimage DuckStation-x64.AppImage
 ok "DuckStation $DUCKSTATION_VERSION: $applications/DuckStation-x64.AppImage"
+# DuckStation's own rule: $XDG_CONFIG_HOME/duckstation when that is an absolute path, else ~/.local/share/duckstation
+case ${XDG_CONFIG_HOME-} in
+    /*) duckstation_data="$XDG_CONFIG_HOME/duckstation" ;;
+    *) duckstation_data="$HOME/.local/share/duckstation" ;;
+esac
+flatpak_duckstation="$HOME/.var/app/org.duckstation.DuckStation/config/duckstation"
+if [ ! -d "$flatpak_duckstation" ]; then
+    :
+elif flatpak ps --columns=application 2>/dev/null | grep -qx org.duckstation.DuckStation; then
+    warn "The DuckStation Flatpak is running. Close it and run this script again to copy its data to the AppImage."
+elif [ -e "$duckstation_data" ] || [ -L "$duckstation_data" ]; then
+    missing=0
+    while IFS= read -r -d '' file; do
+        [ -e "$duckstation_data/$file" ] || missing=$((missing + 1))
+    done < <(cd "$flatpak_duckstation" && find . -type f ! -path './cache/*' -printf '%P\0')
+    if [ "$missing" -gt 0 ]; then
+        warn "$duckstation_data already existed, so the DuckStation Flatpak's data was not copied and $missing of its"
+        warn "files (BIOS, memory cards, save states) are missing there. Close DuckStation and copy them from $flatpak_duckstation."
+    fi
+else
+    # copied beside the destination and renamed into place, so an interrupted copy never looks complete
+    copy=
+    if mkdir -p "${duckstation_data%/*}" && copy=$(mktemp -d "${duckstation_data%/*}/.duckstation.XXXXXX") &&
+        cp -a "$flatpak_duckstation/." "$copy/duckstation" && mv -T "$copy/duckstation" "$duckstation_data"; then
+        rmdir "$copy"
+        ok "Copied the DuckStation Flatpak's BIOS, saves and settings to $duckstation_data; the originals stay in ~/.var/app"
+    else
+        [ -z "$copy" ] || rm -rf "$copy"
+        warn "Could not copy $flatpak_duckstation to $duckstation_data, so nothing was created there."
+        warn "Copy that folder there yourself while DuckStation is closed."
+    fi
+fi
 if flatpak info org.duckstation.DuckStation >/dev/null 2>&1; then
-    warn "The old DuckStation Flatpak is still installed; ES-DE now uses the official AppImage."
-    warn "Its data is unchanged. Close both versions and copy ~/.var/app/org.duckstation.DuckStation/config/duckstation"
-    warn "to ${XDG_DATA_HOME:-$HOME/.local/share}/duckstation only if the destination is absent; re-add game directories."
-    warn "After checking saves: flatpak uninstall org.duckstation.DuckStation"
-    warn "Keep its data when uninstalling; do not pass --delete-data."
+    warn "The old DuckStation Flatpak is still installed; ES-DE starts the AppImage. Once that shows your BIOS and saves:"
+    warn "flatpak uninstall org.duckstation.DuckStation (without --delete-data)"
 fi
 
 section "ES-DE (official AppImage)"
@@ -207,7 +236,7 @@ ok "custom_systems: each system starts the emulator installed above; DuckStation
 section "Emulation setup complete"
 warn "Manual steps (BIOS, firmware, keys and games are your own dumps, never shipped):"
 echo "  1. Games  → ~/Emulation/roms/<system>/  (psx ps2 ps3 ps4 psp snes n64 nds n3ds gc wii wiiu dreamcast xbox360)"
-echo "  2. PS1 BIOS → ${XDG_DATA_HOME:-$HOME/.local/share}/duckstation/bios; PS2 BIOS → PCSX2's Flatpak data"
+echo "  2. PS1 BIOS → $duckstation_data/bios; PS2 BIOS → PCSX2's Flatpak data"
 echo "  3. PS3 firmware → RPCS3 (in the menu) → File → Install Firmware (PS3UPDAT.PUP from Sony)"
 echo "  4. PS4 → per game a .desktop file in roms/ps4 whose Exec line runs"
 echo "     $applications/Shadps4-sdl.AppImage \"<game folder>/eboot.bin\""
