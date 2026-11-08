@@ -1040,6 +1040,7 @@ A Windows 11 virtual machine on KVM/libvirt, for Windows-only programs without a
 ```bash
 bash scripts/windows-vm-setup.sh                   # libvirt, VM storage and virtio drivers; no VM yet
 bash scripts/windows-vm-setup.sh <Win11 ISO>       # the same, then creates the VM and opens its console
+bash scripts/windows-vm-setup.sh --find-iso        # the same with the newest finished Windows 11 ISO in ~/Downloads
 ```
 
 - **The VM**: UEFI with Secure Boot and Microsoft's keys enrolled, an emulated TPM 2.0 (`swtpm`), the host's CPU model, a virtio disk and network card, a SPICE display, and the Hyper-V enlightenments `virt-install --osinfo win11` adds. It gets 8 GiB of RAM on a machine with 24 GB or more (4 GiB below), half the CPU threads up to 8, and a 128 GiB sparse qcow2 disk; `VM_NAME`, `VM_RAM_MIB`, `VM_CPUS` and `VM_DISK_GIB` override them.
@@ -1085,7 +1086,7 @@ Local LLM via Ollama — the upstream CUDA build with a hardened unit, the uncen
 
 ### `scripts/windows-vm-setup.sh`
 
-Windows 11 VM on KVM/libvirt — packages, libvirt sockets, VM storage outside snapper's snapshots, the pinned virtio-win drivers, and with an ISO the VM itself. Opt-in. See [Windows VM](#windows-vm).
+Windows 11 VM on KVM/libvirt — packages, libvirt sockets, VM storage outside snapper's snapshots, the pinned virtio-win drivers, and with an ISO the VM itself. `--find-iso` takes the newest Windows 11 ISO (`Win11*.iso` or `Windows11*.iso`) in the download folder or in `VM_ISO_DIR` from `setup.conf`, and refuses one the browser is still downloading. Opt-in. See [Windows VM](#windows-vm).
 
 ### `scripts/sysinfo.sh` — alias: `sysinfo`
 
