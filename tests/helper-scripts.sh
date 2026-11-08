@@ -167,37 +167,81 @@ if PATH="$stub:$PATH" BACKEND=Vulkan bash "$tmp/verify.sh" >"$tmp/verify.out"; t
 fi
 
 if [ "$EUID" -ne 0 ]; then
-    mkdir -p "$tmp/checkout/.git" "$tmp/hw/sys/bus/pci/devices/0000:01:00.0"
+    mkdir -p "$tmp/hw/sys/bus/pci/devices/0000:01:00.0"
     printf '0x030000\n' >"$tmp/hw/sys/bus/pci/devices/0000:01:00.0/class"
     printf '0x10de\n' >"$tmp/hw/sys/bus/pci/devices/0000:01:00.0/vendor"
     printf '0x2f04\n' >"$tmp/hw/sys/bus/pci/devices/0000:01:00.0/device"
-    cat >"$stub/git" <<'STUB'
-#!/bin/bash
-case "$*" in
-    *rev-parse*) echo "${GIT_PIN:-unreviewed-revision}" ;;
-    *diff*) exit 1 ;;
-    *) exit 1 ;;
-esac
-STUB
     cat >"$stub/uname" <<'STUB'
 #!/bin/bash
 case "$1" in -r) echo fixture-kernel ;; *) echo x86_64 ;; esac
 STUB
-    chmod +x "$stub/git" "$stub/uname"
-    : >"$SAFE_LOG"
-    if output=$(PATH="$stub:$PATH" HW_ROOT="$tmp/hw" STRATA_DIR="$tmp/checkout" STRATA_DATA="$tmp/model-data" \
-        bash "$repo/scripts/strata-setup.sh" 2>&1); then
-        fail "Strata accepted an unpinned existing checkout"
-    fi
-    [[ $output == *"is not at pinned revision"* ]] || fail "missing Strata revision failure diagnostic"
-    pin=$(awk -F'[= ]' '/^STRATA_REV=/{print $2}' "$repo/scripts/strata-setup.sh")
-    if output=$(PATH="$stub:$PATH" HW_ROOT="$tmp/hw" STRATA_DIR="$tmp/checkout" STRATA_DATA="$tmp/model-data" \
-        GIT_PIN="$pin" bash "$repo/scripts/strata-setup.sh" 2>&1); then
-        fail "Strata accepted modified tracked setup code"
-    fi
+    chmod +x "$stub/uname"
+    # a stand-in for Strata's repository: releases v0.1.0 and v0.2.0, then an untagged commit
+    sgit() { git -c user.name=fixture -c user.email=fixture@invalid -c commit.gpgsign=false -c tag.gpgsign=false "$@"; }
+    origin="$tmp/strata-origin"
+    git init -q -b main "$origin"
+    cat >"$origin/setup.sh" <<'STUB'
+#!/bin/bash
+printf 'strata-setup %s\n' "$*" >>"$SAFE_LOG"
+printf '{}\n' >"$(dirname "$0")/strata-coder-iq1_m.json"
+STUB
+    chmod +x "$origin/setup.sh"
+    sgit -C "$origin" add setup.sh
+    sgit -C "$origin" commit -q -m one && sgit -C "$origin" tag v0.1.0
+    sgit -C "$origin" commit -q --allow-empty -m two && sgit -C "$origin" tag v0.2.0
+    sgit -C "$origin" commit -q --allow-empty -m three
+    v1=$(git -C "$origin" rev-parse v0.1.0) v2=$(git -C "$origin" rev-parse v0.2.0) v3=$(git -C "$origin" rev-parse main)
+    # rm is the logging stub inside the script, so removals are read from SAFE_LOG
+    checkout() {  # commit: a clone of the stand-in at that commit
+        rm -rf "$tmp/strata" "$tmp/model-data"
+        git clone -q "$origin" "$tmp/strata" && git -C "$tmp/strata" reset -q --hard "$1"
+        : >"$SAFE_LOG"
+    }
+    run_strata() {  # STRATA_REV expected-exit
+        output=$(PATH="$stub:$PATH" HW_ROOT="$tmp/hw" STRATA_DIR="$tmp/strata" STRATA_DATA="$tmp/model-data" \
+            STRATA_REV="$1" bash "$repo/scripts/strata-setup.sh" 2>&1) && rc=0 || rc=$?
+        [ "$rc" -eq "$2" ] || fail "strata-setup.sh with STRATA_REV=$1 exited $rc, want $2: $output"
+    }
+    at() { [ "$(git -C "$tmp/strata" rev-parse HEAD)" = "$1" ] || fail "$2"; }
+    untouched() {  # what a refused run must leave alone
+        [ ! -e "$tmp/model-data" ] || fail "Strata created model storage before validating the checkout"
+        ! grep -q '^sudo ' "$SAFE_LOG" || fail "Strata changed system packages before validating the checkout"
+        ! grep -q "^rm -rf $tmp/strata/build" "$SAFE_LOG" || fail "a refused Strata run removed the built engine"
+    }
+
+    checkout "$v1"
+    printf '# edited\n' >>"$tmp/strata/setup.sh"
+    run_strata latest 1
     [[ $output == *"has tracked changes"* ]] || fail "missing Strata tracked-change diagnostic"
-    [ ! -e "$tmp/model-data" ] || fail "Strata created model storage before validating the checkout"
-    ! grep -q '^sudo ' "$SAFE_LOG" || fail "Strata changed system packages before validating the checkout"
+    untouched
+    checkout "$v1"
+    sgit -C "$tmp/strata" commit -q --allow-empty -m local
+    run_strata latest 1
+    [[ $output == *"cannot fast-forward"* ]] || fail "a Strata checkout with its own commit was moved"
+    untouched
+    checkout "$v3"
+    run_strata "$v2" 1
+    [[ $output == *"cannot fast-forward"* ]] || fail "a pinned run accepted a checkout past the pin"
+    untouched
+    run_strata 0000000 1
+    [[ $output == *"has no revision 0000000"* ]] || fail "an unknown Strata revision was accepted"
+
+    checkout "$v1"
+    run_strata latest 0
+    at "$v2" "latest did not move Strata to its newest release, v0.2.0"
+    grep -qx "rm -rf $tmp/strata/build" "$SAFE_LOG" || fail "the engine of the old source was kept for the build"
+    grep -q '^strata-setup --yes .*--build' "$SAFE_LOG" || fail "Strata's setup did not rebuild the engine"
+    grep -q '^strata-setup .*--context 65536' "$SAFE_LOG" || fail "a 12 GB card kept Strata's 128K context"
+    : >"$SAFE_LOG"
+    VRAM=24576 run_strata latest 0
+    ! grep -q -- '--context' "$SAFE_LOG" || fail "a 24 GB card lost Strata's default context"
+    checkout "$v1"
+    run_strata "$v2" 0
+    at "$v2" "a pinned run did not fast-forward to its pin"
+    checkout "$v3"
+    run_strata latest 0
+    at "$v3" "latest moved a checkout already past the newest release"
+    ! grep -q "^rm -rf $tmp/strata/build" "$SAFE_LOG" || fail "an unchanged Strata checkout lost its engine"
 
     cat >"$stub/rpm" <<'STUB'
 #!/bin/bash

@@ -130,7 +130,6 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   └── check-packages.sh       # CI: literal package names resolve in the scoped repos
 ├── setup.conf.example          # Per-machine overrides; copy to setup.conf
 ├── README.md                   # This guide
-├── CHANGELOG.md                # What changed, newest first
 ├── CONTRIBUTING.md             # Checks to run, conventions, repository settings
 ├── AGENTS.md                   # Boundaries for AI coding agents
 ├── SECURITY.md                 # How to report a vulnerability
@@ -1005,7 +1004,7 @@ Check saves before uninstalling the old Flatpak, and keep its data by omitting
 bash scripts/strata-setup.sh
 ```
 
-Strata 0.2 is a desktop app, a Terminal and an engine, with Linux AppImages and ready-made engines; the ready-made engine is checked only against a hash fetched from the same GitHub release, so the script keeps compiling the engine from the pinned commit (`--build`) and adds NVIDIA's CUDA repo for `cuda-toolkit-13-4`, with NVIDIA's own driver packages excluded as [RPM Fusion recommends](https://rpmfusion.org/Howto/CUDA): they replace RPM Fusion's driver or collide with its files, and the next driver update then fails. It clones Strata pinned to v0.2.3.1 into `~/Prosjekter/Strata` and puts the model files on `/mnt/data/Strata-data` — not under `/home`, which snapper snapshots. `STRATA_DIR` and `STRATA_DATA`, in the environment or in `setup.conf`, override both paths. An existing checkout must match the pinned commit and have no tracked edits; move an older one with `git fetch`, `git merge --ff-only <commit>` and `rm -rf build` in it first; a build folder left from the old source makes the compile a no-op and setup stops.
+Strata 0.2 is a desktop app, a Terminal and an engine, with Linux AppImages and ready-made engines; the ready-made engine is checked only against a hash fetched from the same GitHub release, so the script keeps compiling the engine from the pinned commit (`--build`) and adds NVIDIA's CUDA repo for `cuda-toolkit-13-4`, with NVIDIA's own driver packages excluded as [RPM Fusion recommends](https://rpmfusion.org/Howto/CUDA): they replace RPM Fusion's driver or collide with its files, and the next driver update then fails. It clones Strata pinned to v0.2.12 into `~/Prosjekter/Strata` and puts the model files on `/mnt/data/Strata-data` — not under `/home`, which snapper snapshots. `STRATA_DIR`, `STRATA_DATA` and `STRATA_REV`, in the environment or in `setup.conf`, override both paths and the commit; `STRATA_REV=latest` follows Strata's newest release instead, upstream code this repo has not tested, and `verify-setup.sh` then says when a newer one is out. Run the script again to update: it fast-forwards a checkout without tracked edits (one with commits of its own is left for review), removes the build folder of the old source, which would turn the compile into a no-op, and rebuilds; sudo is needed only while the CUDA toolkit or its repo is missing. On a card with 12 GB or less it asks for a 64K context instead of Strata's 128K default: with the 3 GiB reserve, 128K leaves the expert cache no room on an RTX 5070, while 64K still holds a coding agent's 36K prompt.
 
 - **Model by RAM**: under 40 GiB the Coder (IQ1_M, half the experts — strong at code, answers Norwegian prompts mostly in English); otherwise the full model at the size Strata recommends.
 - **Text only**: `--vision no --images no` keep 0.2's picture reader and image model off, so the Coder stays a text model with nothing new in VRAM; `./setup.sh --setup` in the checkout turns them on.
@@ -1078,7 +1077,7 @@ Retro emulation setup — installs ES-DE (Terra repo) and the standalone emulato
 
 ### `scripts/strata-setup.sh`
 
-Local LLM setup — CUDA toolkit from NVIDIA's repo, Strata pinned to a release, the model picked by RAM, a 3 GiB VRAM reserve for the desktop, Strata's refusal vector and, for the Coder, idle unload and DuckDuckGo web search. See [Local LLM (Strata)](#local-llm-strata).
+Local LLM setup — CUDA toolkit from NVIDIA's repo, Strata pinned to a release or following the newest, the model picked by RAM, a 3 GiB VRAM reserve for the desktop, Strata's refusal vector and, for the Coder, idle unload and DuckDuckGo web search. See [Local LLM (Strata)](#local-llm-strata).
 
 ### `scripts/ollama-setup.sh`
 
