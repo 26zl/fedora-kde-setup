@@ -1,4 +1,4 @@
-# Local overrides for scripts/fedora-setup.sh and scripts/apply-system.sh.
+# Local overrides for scripts/fedora-setup.sh, scripts/apply-system.sh and scripts/strata-setup.sh.
 # Copy to setup.conf (git-ignored) and uncomment what you need. Anything left
 # unset follows the hardware detection in scripts/lib/hw.sh.
 
@@ -22,3 +22,8 @@
 # and the Conky widget; the terminal configs and KDE settings still apply. On an
 # installed system, apply-system.sh then takes the login screen wallpaper back out.
 #RICE=yes
+
+# Where scripts/strata-setup.sh keeps the checkout and the ~85 GB of model files.
+# Keep the model files off /home: snapper would hold them in every snapshot.
+#STRATA_DIR=$HOME/Prosjekter/Strata
+#STRATA_DATA=/mnt/data/Strata-data

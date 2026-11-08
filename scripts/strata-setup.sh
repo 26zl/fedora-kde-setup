@@ -22,9 +22,13 @@ warn()    { echo -e "  ${RED}!${RESET} $1"; }
 section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; }
 
 STRATA_REV=7ddc17a38fe7f31637e895ecfba58c2cd43d65ec  # v0.2.3.1
+# setup.conf may set both paths; the environment wins over it
+conf() { if [ -f setup.conf ]; then (unset "$1"; . ./setup.conf >/dev/null 2>&1; printf '%s' "${!1-}"); fi; }
+STRATA_DIR=${STRATA_DIR:-$(conf STRATA_DIR)}
 STRATA_DIR=${STRATA_DIR:-$HOME/Prosjekter/Strata}
+STRATA_DATA=${STRATA_DATA:-$(conf STRATA_DATA)}
 # not under /home: snapper would keep the model files in every snapshot
-STRATA_DATA=${STRATA_DATA:-/mnt/data/IT/Strata-data}
+STRATA_DATA=${STRATA_DATA:-/mnt/data/Strata-data}
 
 hw_has_gpu 10de || { warn "Strata's CUDA engine needs an NVIDIA GPU"; exit 1; }
 if [ -d "$STRATA_DIR/.git" ]; then
