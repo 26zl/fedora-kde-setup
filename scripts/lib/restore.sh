@@ -18,7 +18,9 @@ restore_check_nested() {  # source filesystem-root home-mode
             restore_error "nested home subvolume $relative needs separate recovery protection"; return 1
         fi
         case "$relative" in
+            # kept out of root snapshots on purpose: systemd's images and windows-vm-setup.sh's VM disks
             var/lib/machines|var/lib/machines/*|var/lib/portables|var/lib/portables/*) continue ;;
+            var/lib/libvirt/images|var/lib/libvirt/images/*) continue ;;
             etc|etc/*|usr|usr/*|var|var/*|root|root/*|opt|opt/*|home|home/*)
                 restore_error "nested system subvolume $relative is outside the supported root/home layout"; return 1 ;;
         esac

@@ -97,6 +97,9 @@ jobs:
       - name: Run the pre-install restore-point tests
         run: bash tests/setup-restore.sh
 
+      - name: Run the Windows VM setup tests
+        run: bash tests/windows-vm.sh
+
       - name: Run the deploy steps on a fresh Fedora
         run: bash tests/fresh-install.sh
 
