@@ -1,5 +1,7 @@
 #!/bin/bash
-# Retro emulation: ES-DE frontend + standalone emulators (PS1/PS2/PS3, GameCube/Wii)
+# Retro emulation: ES-DE and one emulator per system, each one ES-DE's default for its system.
+# PS1 DuckStation, PS2 PCSX2, PS3 RPCS3, PS4 shadPS4, PSP PPSSPP, SNES RetroArch, N64 RMG, DS melonDS,
+# 3DS Azahar, GameCube and Wii Dolphin, Wii U Cemu, Dreamcast Flycast, Xbox 360 Xenia Edge.
 
 [ $# -eq 0 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; case $1 in -h | --help) exit 0 ;; *) exit 2 ;; esac; }
 
@@ -27,21 +29,72 @@ DUCKSTATION_LICENSE_SHA256=38762e3777f4ec00a6f769062a7c3f704fb78ce08303ecff88558
 ES_DE_VERSION=3.5.0
 ES_DE_URL=https://gitlab.com/es-de/emulationstation-de/-/package_files/357718352/download
 ES_DE_SHA256=abc2999a12385f85775bd3f986fa891c76b69df3791f7c12e4c783cf3c3630f5
+# every RPCS3 build is its own release; its notes list the SHA-256
+RPCS3_VERSION=0.0.43-20572
+RPCS3_URL=https://github.com/RPCS3/rpcs3-binaries-linux/releases/download/build-e61d5eaf0f7135e578a5280b2bb2bd5c8a1c439f/rpcs3-v0.0.43-20572-e61d5eaf_linux64.AppImage
+RPCS3_SHA256=c34a9e553846842c2be073bfa4980c2fec587362ad022c100b8391ca66847fc8
+SHADPS4_VERSION=0.21.0
+SHADPS4_URL=https://github.com/shadps4-emu/shadPS4/releases/download/v.0.21.0/shadps4-linux-sdl-0.21.0.zip
+SHADPS4_SHA256=7c41c58254461d742b5edf564e23795697b63e9e46de11d0e1ed67bd2cbaae68
+# Xenia Edge has no stable channel: every commit is a release, tagged with its short hash
+XENIA_EDGE_VERSION=3c0f1d3
+XENIA_EDGE_URL=https://github.com/has207/xenia-edge/releases/download/3c0f1d3/xenia_edge_linux.AppImage
+XENIA_EDGE_SHA256=351bf908849a6052251b48a7c104b2fd11d662e082f31161221d0f204dd0ed15
+
+applications="$HOME/Applications"
+menu="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+mkdir -p "$applications"
+# Stage beside the destination so a failed download cannot replace an installed binary.
+staging=$(mktemp -d "$applications/.emulation-setup.XXXXXX")
+trap 'rm -rf "$staging"' EXIT
+
+fetch() {  # URL NAME SHA256
+    curl -fsSL --connect-timeout 20 --speed-limit 1024 --speed-time 60 --retry 3 "$1" -o "$staging/$2"
+    printf '%s  %s\n' "$3" "$staging/$2" | sha256sum -c --quiet -
+}
+install_appimage() {  # NAME
+    chmod 755 "$staging/$1"
+    mv -fT "$staging/$1" "$applications/$1"
+}
+menu_entry() {  # ID NAME GENERIC-NAME COMMENT APPIMAGE
+    mkdir -p "$menu"
+    cat >"$staging/$1.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=$2
+GenericName=$3
+Comment=$4
+Exec="$applications/$5"
+Icon=applications-games
+Terminal=false
+Categories=Game;Emulator;
+EOF
+    mv -fT "$staging/$1.desktop" "$menu/$1.desktop"
+}
+
+section "Downloads (pinned, checked before anything is installed)"
+fetch "https://github.com/stenzek/duckstation/releases/download/$DUCKSTATION_VERSION/DuckStation-x64.AppImage" \
+    DuckStation-x64.AppImage "$DUCKSTATION_SHA256"
+fetch "https://raw.githubusercontent.com/stenzek/duckstation/$DUCKSTATION_REV/LICENSE" \
+    DuckStation-LICENSE.txt "$DUCKSTATION_LICENSE_SHA256"
+fetch "$ES_DE_URL" ES-DE_x64.AppImage "$ES_DE_SHA256"
+fetch "$RPCS3_URL" rpcs3_linux64.AppImage "$RPCS3_SHA256"
+fetch "$SHADPS4_URL" shadps4.zip "$SHADPS4_SHA256"
+fetch "$XENIA_EDGE_URL" xenia_edge_linux.AppImage "$XENIA_EDGE_SHA256"
+# only this member is read; no path from the archive is ever written
+python3 -I - "$staging/shadps4.zip" "$staging/Shadps4-sdl.AppImage" <<'EOF'
+import shutil
+import sys
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1]) as archive, archive.open("Shadps4-sdl.AppImage") as member, \
+        open(sys.argv[2], "xb") as appimage:
+    shutil.copyfileobj(member, appimage)
+EOF
+ok "Every download matches its pinned SHA-256"
 
 section "DuckStation (official AppImage)"
-applications="$HOME/Applications"
-mkdir -p "$applications"
-download=$(mktemp -d "$applications/.duckstation.XXXXXX")
-trap 'rm -rf "$download"' EXIT
-curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 \
-    "https://github.com/stenzek/duckstation/releases/download/$DUCKSTATION_VERSION/DuckStation-x64.AppImage" \
-    -o "$download/DuckStation-x64.AppImage"
-printf '%s  %s\n' "$DUCKSTATION_SHA256" "$download/DuckStation-x64.AppImage" | sha256sum -c --quiet -
-curl -fsSL --connect-timeout 20 --max-time 60 --retry 3 \
-    "https://raw.githubusercontent.com/stenzek/duckstation/$DUCKSTATION_REV/LICENSE" \
-    -o "$download/DuckStation-LICENSE.txt"
-printf '%s  %s\n' "$DUCKSTATION_LICENSE_SHA256" "$download/DuckStation-LICENSE.txt" | sha256sum -c --quiet -
-cat >"$download/DuckStation-SOURCE.txt" <<EOF
+cat >"$staging/DuckStation-SOURCE.txt" <<EOF
 DuckStation by Connor McLaughlin and contributors
 Version: $DUCKSTATION_VERSION
 Source: https://github.com/stenzek/duckstation/tree/$DUCKSTATION_REV
@@ -50,12 +103,10 @@ License: Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 Internatio
 License text: DuckStation-LICENSE.txt
 The upstream AppImage is unmodified and retains its bundled third-party notices.
 EOF
-chmod 755 "$download/DuckStation-x64.AppImage"
-chmod 644 "$download/DuckStation-LICENSE.txt" "$download/DuckStation-SOURCE.txt"
-# Stage beside the destination so a failed download cannot replace the installed binary.
-mv -fT "$download/DuckStation-LICENSE.txt" "$applications/DuckStation-LICENSE.txt"
-mv -fT "$download/DuckStation-SOURCE.txt" "$applications/DuckStation-SOURCE.txt"
-mv -fT "$download/DuckStation-x64.AppImage" "$applications/DuckStation-x64.AppImage"
+chmod 644 "$staging/DuckStation-LICENSE.txt" "$staging/DuckStation-SOURCE.txt"
+mv -fT "$staging/DuckStation-LICENSE.txt" "$applications/DuckStation-LICENSE.txt"
+mv -fT "$staging/DuckStation-SOURCE.txt" "$applications/DuckStation-SOURCE.txt"
+install_appimage DuckStation-x64.AppImage
 ok "DuckStation $DUCKSTATION_VERSION: $applications/DuckStation-x64.AppImage"
 if flatpak info org.duckstation.DuckStation >/dev/null 2>&1; then
     warn "The old DuckStation Flatpak is still installed; ES-DE now uses the official AppImage."
@@ -67,47 +118,83 @@ fi
 
 section "ES-DE (official AppImage)"
 # es-de.org ships Linux builds only as AppImages; Terra's RPM lagged each new Fedora release
-es_download=$(mktemp -d "$applications/.es-de.XXXXXX")
-trap 'rm -rf "$download" "$es_download"' EXIT
-curl -fsSL --connect-timeout 20 --speed-limit 1024 --speed-time 60 --retry 3 "$ES_DE_URL" \
-    -o "$es_download/ES-DE_x64.AppImage"
-printf '%s  %s\n' "$ES_DE_SHA256" "$es_download/ES-DE_x64.AppImage" | sha256sum -c --quiet -
-chmod 755 "$es_download/ES-DE_x64.AppImage"
-mv -fT "$es_download/ES-DE_x64.AppImage" "$applications/ES-DE_x64.AppImage"
-menu="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
-mkdir -p "$menu"
-cat >"$es_download/es-de.desktop" <<EOF
-[Desktop Entry]
-Type=Application
-Name=ES-DE
-GenericName=Emulator frontend
-Comment=Browse and play the games in ~/Emulation/roms
-Exec="$applications/ES-DE_x64.AppImage"
-Icon=applications-games
-Terminal=false
-Categories=Game;Emulator;
-EOF
-mv -fT "$es_download/es-de.desktop" "$menu/es-de.desktop"
+install_appimage ES-DE_x64.AppImage
+menu_entry es-de ES-DE "Emulator frontend" "Browse and play the games in ~/Emulation/roms" ES-DE_x64.AppImage
 ok "ES-DE $ES_DE_VERSION: $applications/ES-DE_x64.AppImage, in the menu under Games"
+
+section "RPCS3 (official AppImage)"
+install_appimage rpcs3_linux64.AppImage
+menu_entry rpcs3 RPCS3 "PlayStation 3 emulator" "Install the PS3 firmware and games" rpcs3_linux64.AppImage
+ok "RPCS3 $RPCS3_VERSION: $applications/rpcs3_linux64.AppImage, in the menu under Games"
+rpcs3_data="${XDG_CONFIG_HOME:-$HOME/.config}/rpcs3"
+flatpak_data="$HOME/.var/app/net.rpcs3.RPCS3/config/rpcs3"
+if flatpak info net.rpcs3.RPCS3 >/dev/null 2>&1; then
+    if flatpak ps --columns=application 2>/dev/null | grep -qx net.rpcs3.RPCS3; then
+        warn "The RPCS3 Flatpak is running. Close it and run this script again to move its data and remove it."
+    elif [ ! -e "$flatpak_data" ]; then
+        flatpak uninstall -y net.rpcs3.RPCS3
+        ok "Removed the RPCS3 Flatpak, which held no data"
+    elif [ -e "$rpcs3_data" ] || [ -L "$rpcs3_data" ]; then
+        warn "RPCS3 data is in both $flatpak_data and $rpcs3_data, so the Flatpak stays installed."
+        warn "Keep the copy you want in $rpcs3_data, then: flatpak uninstall net.rpcs3.RPCS3 (without --delete-data)"
+    # a rename or nothing: a copy to another filesystem could stop halfway and split the data
+    elif mkdir -p "${rpcs3_data%/*}" && mv -T --no-copy "$flatpak_data" "$rpcs3_data"; then
+        flatpak uninstall -y net.rpcs3.RPCS3
+        ok "Moved the RPCS3 Flatpak's data to $rpcs3_data and removed the Flatpak; its cache stays in ~/.var/app"
+    else
+        warn "Could not rename $flatpak_data to $rpcs3_data, so the Flatpak stays installed."
+        warn "Move that folder there yourself, then: flatpak uninstall net.rpcs3.RPCS3 (without --delete-data)"
+    fi
+fi
+
+section "shadPS4 and Xenia Edge (official AppImages)"
+install_appimage Shadps4-sdl.AppImage
+ok "shadPS4 $SHADPS4_VERSION (PS4): $applications/Shadps4-sdl.AppImage"
+install_appimage xenia_edge_linux.AppImage
+ok "Xenia Edge $XENIA_EDGE_VERSION (Xbox 360): $applications/xenia_edge_linux.AppImage"
 
 section "Emulators (Flatpak)"
 flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
 flatpak install -y flathub \
     net.pcsx2.PCSX2 \
-    net.rpcs3.RPCS3 \
-    org.DolphinEmu.dolphin-emu \
-    org.libretro.RetroArch
-ok "PCSX2 (PS2), RPCS3 (PS3), Dolphin (GameCube/Wii), RetroArch (SNES/N64)"
+    org.libretro.RetroArch \
+    com.github.Rosalie241.RMG \
+    org.azahar_emu.Azahar \
+    org.ppsspp.PPSSPP \
+    net.kuribo64.melonDS \
+    org.flycast.Flycast \
+    info.cemu.Cemu
+ok "Flathub: PCSX2, RetroArch (SNES), RMG (N64), Azahar (3DS), PPSSPP, melonDS (DS), Flycast (Dreamcast), Cemu (Wii U)"
+# the Dolphin team's own repository uses Flathub's app ID, so switching keeps ~/.var/app/org.DolphinEmu.dolphin-emu
+flatpak remote-add --if-not-exists dolphin https://flatpak.dolphin-emu.org/releases.flatpakrepo
+if [ "$(flatpak info --show-origin org.DolphinEmu.dolphin-emu 2>/dev/null)" != dolphin ]; then
+    flatpak install -y --reinstall dolphin org.DolphinEmu.dolphin-emu
+fi
+ok "Dolphin (GameCube, Wii) from flatpak.dolphin-emu.org"
+# earlier manual steps had this core installed for N64, which RMG runs now
+core="$HOME/.var/app/org.libretro.RetroArch/config/retroarch/cores/mupen64plus_next_libretro.so"
+if [ -f "$core" ]; then
+    rm -f "$core"
+    ok "Removed RetroArch's Mupen64Plus-Next core: N64 runs in RMG"
+fi
 
 section "Flatpak ROM access"
-# ROMs on another disk: also grant that path (flatpak override --user --filesystem=<path> <app>)
-for app in net.pcsx2.PCSX2 net.rpcs3.RPCS3 \
-           org.libretro.RetroArch org.DolphinEmu.dolphin-emu; do
-    flatpak override --user --filesystem="$HOME/Emulation" "$app"
+grants=(--filesystem="$HOME/Emulation")
+readable="$HOME/Emulation"
+emulation=$(readlink -m "$HOME/Emulation")
+roms=$(readlink -m "$HOME/Emulation/roms")
+# a ROM folder linked to another disk is reachable in the sandbox only through its target
+if [[ $roms != "$emulation"/* ]]; then
+    grants+=(--filesystem="$roms")
+    readable+=" and $roms, the ROM folder it links to"
+fi
+for app in net.pcsx2.PCSX2 org.libretro.RetroArch com.github.Rosalie241.RMG org.azahar_emu.Azahar \
+           org.ppsspp.PPSSPP net.kuribo64.melonDS org.flycast.Flycast info.cemu.Cemu org.DolphinEmu.dolphin-emu; do
+    flatpak override --user "${grants[@]}" "$app"
 done
-ok "Emulators granted access to ~/Emulation"
+ok "Emulator Flatpaks can read $readable"
 
-section "ES-DE default emulators (standalone, not libretro)"
+section "ES-DE default emulators"
 mkdir -p "$HOME/ES-DE/custom_systems"
 # es_find_rules.xml resolves %EMULATOR_DUCKSTATION% to the pinned AppImage alone, ahead of a leftover Flatpak
 for f in es_systems.xml es_find_rules.xml; do
@@ -115,16 +202,17 @@ for f in es_systems.xml es_find_rules.xml; do
         cp --backup=numbered "configs/es-de/$f" "$HOME/ES-DE/custom_systems/$f"
     fi
 done
-ok "custom_systems: psx/ps2/ps3/gc/wii default to standalone; DuckStation resolves to the AppImage"
+ok "custom_systems: each system starts the emulator installed above; DuckStation resolves to the AppImage"
 
 section "Emulation setup complete"
-warn "Manual steps (BIOS/firmware/ROMs are user-provided, not shipped):"
-echo "  1. ROMs   → ~/Emulation/roms/<system>/  (psx, ps2, ps3, snes, n64, gc, wii)"
+warn "Manual steps (BIOS, firmware, keys and games are your own dumps, never shipped):"
+echo "  1. Games  → ~/Emulation/roms/<system>/  (psx ps2 ps3 ps4 psp snes n64 nds n3ds gc wii wiiu dreamcast xbox360)"
 echo "  2. PS1 BIOS → ${XDG_DATA_HOME:-$HOME/.local/share}/duckstation/bios; PS2 BIOS → PCSX2's Flatpak data"
-echo "  3. PS3 firmware → RPCS3 → File → Install Firmware (PS3UPDAT.PUP from Sony)"
-echo "  4. SNES/N64 cores → RetroArch → Online Updater → Update Installed Cores"
-echo "                      (snes9x, Mupen64Plus-Next)"
-echo "  5. Controller → each emulator has its OWN mapping (PCSX2/DuckStation:"
+echo "  3. PS3 firmware → RPCS3 (in the menu) → File → Install Firmware (PS3UPDAT.PUP from Sony)"
+echo "  4. PS4 → per game a .desktop file in roms/ps4 whose Exec line runs"
+echo "     $applications/Shadps4-sdl.AppImage \"<game folder>/eboot.bin\""
+echo "  5. SNES core → RetroArch → Online Updater → Core Downloader → Nintendo - SNES / SFC (Snes9x - Current)"
+echo "  6. Controller → each emulator has its OWN mapping (PCSX2/DuckStation:"
 echo "     Settings → Controllers → Automatic Mapping; Dolphin: Wii Remote 1"
 echo "     → Emulated Wii Remote → Configure)"
 echo ""

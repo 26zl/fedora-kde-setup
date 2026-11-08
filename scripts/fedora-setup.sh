@@ -501,7 +501,7 @@ fi
 next "Check the result: bash scripts/verify-setup.sh"
 echo ""
 [ "$RICE" = yes ] && info "Conky runs as a systemd user service (systemctl --user status conky)"
-info "For retro emulation (ES-DE + PS1/PS2/PS3, GameCube/Wii): bash scripts/emulation-setup.sh"
+info "For retro emulation (ES-DE + one emulator per system, ~1.7 GB): bash scripts/emulation-setup.sh"
 info "For a local LLM (Strata, ~85 GB download): bash scripts/strata-setup.sh"
 info "For a local LLM via Ollama + Alpaca GUI (~9 GB download): sudo bash scripts/ollama-setup.sh"
 info "For a Windows 11 VM (KVM/libvirt): bash scripts/windows-vm-setup.sh [Win11 ISO]"
