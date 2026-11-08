@@ -183,6 +183,8 @@ fi
 install_iso=$IMAGES/${ISO##*/}
 # shellcheck disable=SC2024  # the redirect runs as the user on purpose
 [ "$ISO" = "$install_iso" ] || sudo install -m 0644 /dev/stdin "$install_iso" <"$ISO"
+# QXL's default 16 MiB stops near 2560x1600, so a 3440x1440 or 4K window got black bars;
+# the guest agent channel serves the agent virtio-win-guest-tools.exe installs
 sudo virt-install --connect "$CONNECT" --name "$VM_NAME" --osinfo win11 \
     --memory "$VM_RAM_MIB" --vcpus "$VM_CPUS" --cpu host-passthrough \
     --boot uefi,firmware.feature0.name=secure-boot,firmware.feature0.enabled=yes,firmware.feature1.name=enrolled-keys,firmware.feature1.enabled=yes \
@@ -191,7 +193,8 @@ sudo virt-install --connect "$CONNECT" --name "$VM_NAME" --osinfo win11 \
     --cdrom "$install_iso" \
     --disk "$virtio_iso,device=cdrom,bus=sata" \
     --network network=default,model=virtio \
-    --graphics spice --noautoconsole
+    --graphics spice --video model.type=qxl,model.vgamem=65536 \
+    --channel unix,target.type=virtio,name=org.qemu.guest_agent.0 --noautoconsole
 ok "$VM_NAME created; it boots the Windows installer now"
 setsid -f virt-manager --connect "$CONNECT" --show-domain-console "$VM_NAME" >/dev/null 2>&1 || true
 
