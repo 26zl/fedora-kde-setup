@@ -41,6 +41,13 @@ create_setup_restore_point() {  # optional filesystem fixture root
     for command in sudo btrfs findmnt tar sha256sum du df mktemp install timedatectl; do
         command -v "$command" >/dev/null || { restore_error "required tool missing: $command; no setup changes made"; return 1; }
     done
+    # a completed restore point from an earlier run is reused before the layout checks; snapper covers later runs
+    if ready=$(sudo bash -c 'ls -d "$1"/run-*/READY 2>/dev/null | head -n 1' bash "$base/.fedora-kde-setup-backups") &&
+        [ -n "$ready" ]; then
+        SETUP_RESTORE_DIR=${ready%/READY}
+        printf 'Restore point: reusing %s\n' "$SETUP_RESTORE_DIR" >&2
+        return 0
+    fi
     [ "$(findmnt -n -o FSTYPE -T "$root")" = btrfs ] || {
         restore_error "a Btrfs root is required for pre-setup recovery; use a verified offline backup for another layout"; return 1;
     }
@@ -98,13 +105,6 @@ create_setup_restore_point() {  # optional filesystem fixture root
     case "$rtc" in yes|no) ;; *) restore_error "unrecognized RTC state"; return 1 ;; esac
     layout=$(findmnt --real -rn -o TARGET,SOURCE,FSTYPE,UUID,FSROOT) || return 1
 
-    # a completed restore point from an earlier run is reused; snapper covers the later runs
-    if ready=$(sudo bash -c 'ls -d "$1"/run-*/READY 2>/dev/null | head -n 1' bash "$base/.fedora-kde-setup-backups") &&
-        [ -n "$ready" ]; then
-        SETUP_RESTORE_DIR=${ready%/READY}
-        printf 'Restore point: reusing %s\n' "$SETUP_RESTORE_DIR" >&2
-        return 0
-    fi
     sudo install -d -m700 -- "$base/.fedora-kde-setup-backups" || return 1
     SETUP_RESTORE_DIR=$(sudo mktemp -d "$base/.fedora-kde-setup-backups/run-XXXXXXXX") || return 1
     sudo chmod 700 "$SETUP_RESTORE_DIR" || return 1

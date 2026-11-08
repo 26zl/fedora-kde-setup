@@ -4,10 +4,10 @@ if test -x /home/linuxbrew/.linuxbrew/bin/brew
     eval (/home/linuxbrew/.linuxbrew/bin/brew shellenv fish)
 end
 
-alias ls='eza --icons --group-directories-first --color=always'
-alias ll='eza --icons --group-directories-first --color=always -lh --git'
-alias la='eza --icons --group-directories-first --color=always -lha --git'
-alias tree='eza --icons --tree --color=always'
+alias ls='eza --icons --group-directories-first --color=auto'
+alias ll='eza --icons --group-directories-first --color=auto -lh --git'
+alias la='eza --icons --group-directories-first --color=auto -lha --git'
+alias tree='eza --icons --tree --color=auto'
 
 alias cat='bat --pager=never'
 set -gx MANPAGER "sh -c 'col -bx | bat -l man -p'"

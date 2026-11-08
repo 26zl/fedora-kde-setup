@@ -1,0 +1,34 @@
+name: Bug report
+description: A script or config does something wrong on your machine
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The command you ran, and what it printed or broke.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+  - type: input
+    id: release
+    attributes:
+      label: Fedora release and kernel
+      placeholder: Fedora 45, 7.2.15-300.fc45.x86_64
+    validations:
+      required: true
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Hardware
+      description: The first lines of `bash scripts/verify-setup.sh` name the hardware the scripts detected.
+      render: text
+  - type: textarea
+    id: log
+    attributes:
+      label: Output
+      description: The script's output, or `journalctl -t fedora-kde-setup -b` after a run in a terminal. Remove anything private.
+      render: text

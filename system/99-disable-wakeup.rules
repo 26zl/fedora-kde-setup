@@ -1,2 +1,3 @@
-# LAMZU dongles and receivers must not wake the system; not only on add, so a udevadm trigger applies it
+# no LAMZU USB device (vendor 373e: dongles, receivers, a wired mouse) may wake the system;
+# not only on add, so a udevadm trigger applies it
 ACTION!="remove", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTRS{idVendor}=="373e", ATTR{power/wakeup}="disabled"

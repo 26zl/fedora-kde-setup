@@ -102,8 +102,12 @@ cmp "$fixture/home/tester/.config/kwinrc" "$backup/home/tester/.config/kwinrc"
 reused=$(PATH="$stub:$PATH" bash "$scratch/run-backup.sh" 2>"$scratch/output") || fail "reusing a completed backup failed"
 [ "$reused" = "$backup" ] || fail "a second run did not reuse the completed backup"
 [ "$(find "$fixture/.fedora-kde-setup-backups" -maxdepth 1 -name 'run-*' | wc -l)" -eq 1 ] || fail "a second run created another backup"
+# the completed restore point predates any later layout change, so it is still reused
+reused=$(PATH="$stub:$PATH" RESTORE_NESTED=yes RESTORE_SEPARATE_VAR=yes bash "$scratch/run-backup.sh" 2>"$scratch/output") ||
+    fail "a later layout change blocked reusing the completed backup"
+[ "$reused" = "$backup" ] || fail "a later layout change did not reuse the completed backup"
 
-for scenario in filesystem space archive snapshot nested mount missing; do
+for scenario in filesystem space archive snapshot nested mount efi missing; do
     test_path="$stub:$PATH"
     case "$scenario" in
         filesystem) flag=RESTORE_FSTYPE=ext4 ;;
@@ -112,6 +116,7 @@ for scenario in filesystem space archive snapshot nested mount missing; do
         snapshot) flag=RESTORE_SNAPSHOT_FAIL=yes ;;
         nested) flag=RESTORE_NESTED=yes ;;
         mount) flag=RESTORE_SEPARATE_VAR=yes ;;
+        efi) flag=RESTORE_ESP=no; mkdir -p "$fixture/sys/firmware/efi" ;;
         missing) flag=RESTORE_FSTYPE=btrfs; mv "$stub/btrfs" "$stub/btrfs.off"; test_path="$stub" ;;
     esac
     : >"$RESTORE_LOG"
@@ -122,6 +127,10 @@ for scenario in filesystem space archive snapshot nested mount missing; do
     fi
     [ "$scenario" != missing ] || grep -q 'required tool missing: btrfs' "$scratch/output" || fail "missing tool gate was not exercised"
     [ "$scenario" != missing ] || mv "$stub/btrfs.off" "$stub/btrfs"
+    if [ "$scenario" = efi ]; then
+        grep -q 'mount the EFI system partition' "$scratch/output" || fail "an unmounted ESP was not refused"
+        rm -rf "$fixture/sys"
+    fi
     ! grep -q SETUP_MUTATION "$RESTORE_LOG" || fail "$scenario reached a system mutation"
     [ "$(find "$fixture/.fedora-kde-setup-backups" -name READY 2>/dev/null | wc -l)" -eq 0 ] || fail "incomplete backup was announced as ready"
 done

@@ -18,6 +18,8 @@ RESET='\033[0m'
 if [ ! -t 1 ] || [ -n "${NO_COLOR-}" ]; then TEAL='' RED='' RESET=''; fi
 
 fails=0
+# fixture root for the tests; empty on a real system
+root=${HW_ROOT:-}
 pass()    { echo -e "  ${TEAL}✓${RESET} $1"; }
 fail()    { echo -e "  ${RED}✗${RESET} $1"; fails=$((fails + 1)); }
 note()    { echo -e "  ${TEAL}→${RESET} $1"; }
@@ -72,8 +74,24 @@ while read -r src dst _ opts _; do
     case $dst in none | swap) continue ;; esac
     case ",$opts," in *,noauto,* | *,x-systemd.automount,*) continue ;; esac
     findmnt --mountpoint "$dst" >/dev/null 2>&1 || unmounted+=" $dst"
-done < /etc/fstab
+done < "$root/etc/fstab"
 if [ -z "$unmounted" ]; then pass "every fstab entry is mounted"; else fail "fstab entries not mounted:$unmounted"; fi
+# the newest installed kernel is the one the next boot picks; check it before rebooting into it
+next=$(find "$root/lib/modules" -mindepth 2 -maxdepth 2 -name vmlinuz -printf '%h\n' 2>/dev/null | sed 's#.*/##' | sort -V | tail -n 1)
+[ "$next" != "$(uname -r)" ] || next=""
+if [ -n "$next" ]; then
+    missing=""
+    while read -r src _ fstype _; do
+        case $src in '' | \#*) continue ;; esac
+        case $fstype in auto | swap | none | fuse* | ntfs-3g | nfs* | cifs | smb3 | tmpfs) continue ;; esac
+        modprobe -n -q -S "$next" "fs-$fstype" 2>/dev/null || missing+=" $fstype"
+    done < "$root/etc/fstab"
+    if [ -z "$missing" ]; then
+        pass "kernel $next has the filesystem drivers /etc/fstab uses"
+    else
+        fail "kernel $next lacks the filesystem drivers:$missing (boot $(uname -r) until /etc/fstab is changed)"
+    fi
+fi
 
 section "Scheduler and tuning"
 want=$(sed -n 's/^default_sched = "scx_\(.*\)"/\1/p' /etc/scx_loader/config.toml 2>/dev/null)
@@ -102,6 +120,15 @@ if [ -n "$NVIDIA_BRANCH" ]; then
         fail "NVIDIA driver not loaded (MOK after a BIOS flash: scripts/mok-reenroll.sh)"
     fi
     check "NVIDIA keeps video memory over suspend" grep -Eq '^PreserveVideoMemoryAllocations: [12]$' /proc/driver/nvidia/params
+    # module options apply when the driver loads, so a deployed change waits for the next boot
+    store=$(sed -n 's/.*NVreg_TemporaryFilePath=\([^ ]*\).*/\1/p' "$root"/etc/modprobe.d/nvidia-*.conf 2>/dev/null | tail -n 1)
+    params=${NVIDIA_PARAMS_FILE:-/proc/driver/nvidia/params}
+    if [ -n "$store" ] && ! grep -qxF "TemporaryFilePath: \"$store\"" "$params" 2>/dev/null; then
+        note "NVIDIA saves video memory to $store from the next boot"
+    fi
+    if [ -n "$next" ] && ! modinfo -k "$next" nvidia >/dev/null 2>&1; then
+        note "no NVIDIA module for kernel $next yet: akmods builds it at boot (sudo akmods --kernels $next shows errors now)"
+    fi
     check "NVIDIA suspend store has room for the video memory" bash system/nvidia-vram-check.sh
     check "NVIDIA pre-sleep capacity check enabled" systemctl is-enabled -q nvidia-vram-check.service
     for unit in nvidia-suspend nvidia-hibernate nvidia-suspend-then-hibernate nvidia-resume; do
@@ -133,6 +160,7 @@ section "Deployed files"
 skip="scx_loader-laptop.toml"
 [ "$FORM_FACTOR" = laptop ] && skip="scx_loader.toml"
 [ -n "$NVIDIA_BRANCH" ] || skip+=" nvidia-performance.conf nvidia-wayland.conf nvidia-vram-check.sh nvidia-vram-check.service"
+[ "$NVIDIA_BRANCH" = 580xx ] || skip+=" nvidia-580xx-storage.conf"
 [ -n "$NVIDIA_BRANCH" ] && hw_is_hybrid_gpu && skip+=" nvidia-wayland.conf"
 [ "${RICE:-yes}" = yes ] || skip+=" wallpaper.jpg"
 drift=0
@@ -154,12 +182,14 @@ rpmnew=$(find /etc \( -name '*.rpmnew' -o -name '*.rpmsave' \) 2>/dev/null | tr 
 [ -z "$rpmnew" ] || note "package config updates waiting: $rpmnew (for files system/ replaces, re-run apply-system.sh instead)"
 
 ollama_on=""
-[ -n "$NVIDIA_BRANCH" ] && systemctl is-active -q ollama 2>/dev/null && ollama_on=1
+[ -n "$NVIDIA_BRANCH" ] && systemctl is-enabled -q ollama 2>/dev/null && ollama_on=1
 if [ -f ~/ES-DE/custom_systems/es_systems.xml ] || compgen -G '/etc/yum.repos.d/cuda-fedora*.repo' >/dev/null ||
     [ -n "$ollama_on" ]; then
     section "Opt-in extras"
 fi
-if [ -n "$ollama_on" ]; then
+if [ -n "$ollama_on" ] && ! systemctl is-active -q ollama 2>/dev/null; then
+    fail "ollama is enabled but not running (systemctl status ollama)"
+elif [ -n "$ollama_on" ]; then
     backend=$(journalctl -u ollama -b -o cat 2>/dev/null | grep -o 'msg="inference compute".*' | tail -n 1 |
         grep -o 'library=[A-Za-z0-9]*')
     if [ "$backend" = library=CUDA ]; then

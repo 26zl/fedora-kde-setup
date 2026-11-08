@@ -11,6 +11,8 @@ shellcheck scripts/*.sh scripts/lib/*.sh tests/*.sh system/*.sh   # CI lints at 
 bash tests/hw-detect.sh                                            # detection fixtures, no root needed
 bash tests/verify-setup.sh                                         # verification command stubs, no root needed
 bash tests/helper-scripts.sh                                       # maintenance command stubs, no root needed
+bash tests/fedora-setup.sh                                         # the setup end to end with every system change stubbed
+bash tests/ollama-setup.sh                                         # Ollama install, drop-ins and model tuning with stubs
 bash tests/setup-configs.sh                                        # user config backups and repeat installs, no root needed
 bash tests/sleep-hooks.sh                                          # KDE sleep lifecycle with fixture sessions
 bash tests/nvidia-vram.sh                                          # NVIDIA backing-store capacity and failure paths
@@ -27,7 +29,11 @@ Dynamic language-pack names and full dependency transactions need a fresh-machin
 ## Conventions
 
 - English in scripts, comments, config files and the README.
+- Formatting follows `.editorconfig`, and `shellcheck` is the linter. `shfmt` is not used: it splits
+  the one-line `|| { warn "..."; exit 1; }` guards the scripts are written with.
 - One short imperative line per commit, no body, no `Co-Authored-By` or other attribution trailer.
+- Package names go literally on a `dnf install -y` line (backslash continuations are fine):
+  `tests/check-packages.sh` resolves only those, so any other spelling skips the check.
 - A new `system/` file needs a `sudo cp` line in `scripts/apply-system.sh` and a README entry;
   a new hardware branch needs a fixture in `tests/hw-detect.sh`; a new upstream download is
   pinned by version and SHA-256, or by commit.

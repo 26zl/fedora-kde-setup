@@ -70,16 +70,62 @@ if output=$(PATH="$stub:$PATH" bash "$repo/scripts/rice-start.sh" 2>&1); then
 fi
 [[ $output != *"Rice is live"* ]] || fail "rice-start printed success after a failure"
 
-output=$(PATH="$stub:$PATH" SUDO_USER=fixture bash "$repo/scripts/disk-cleanup.sh" --yes)
+cleanup_root="$tmp/cleanup-root"
+mkdir -p "$cleanup_root/.fedora-kde-setup-backups/run-a" "$cleanup_root/var/cache/PackageKit"
+: >"$cleanup_root/.fedora-kde-setup-backups/run-a/READY"
+cleanup() { PATH="$stub:$PATH" SUDO_USER=fixture DISK_CLEANUP_ROOT="$cleanup_root" bash "$repo/scripts/disk-cleanup.sh" "$@"; }
+: >"$SAFE_LOG"
+output=$(cleanup --yes </dev/null)
+! grep -qE 'image prune|builder prune' "$SAFE_LOG" || fail "--yes removed container images without a confirmation"
+! grep -q "^rm -rf $cleanup_root/.fedora-kde-setup-backups" "$SAFE_LOG" || fail "--yes deleted a restore point"
+[[ $output == *"container images are only removed after an interactive confirmation"* ]] || fail "--yes kept images silently"
+# prompts: restore points, then container images
+: >"$SAFE_LOG"
+output=$(printf 'n\ny\n' | cleanup)
 grep -q 'podman image prune -af$' "$SAFE_LOG" || fail "cleanup did not prune only Podman images"
 ! grep -q 'podman system prune' "$SAFE_LOG" || fail "cleanup can delete stopped Podman containers"
 [[ $output == *"docker: image cleanup failed"* ]] || fail "Docker image failure was hidden"
 [[ $output == *"docker: build cache cleanup failed"* ]] || fail "Docker build failure was hidden"
+! grep -q "^rm -rf $cleanup_root/.fedora-kde-setup-backups" "$SAFE_LOG" || fail "a declined restore point was deleted"
+: >"$SAFE_LOG"
+printf 'y\nn\n' | cleanup >/dev/null
+grep -q "^rm -rf $cleanup_root/.fedora-kde-setup-backups/run-a$" "$SAFE_LOG" || fail "a confirmed restore point was kept"
+! grep -qE 'image prune|builder prune' "$SAFE_LOG" || fail "declined container images were removed"
+: >"$SAFE_LOG"
+output=$(printf 'y\ny\ny\n' | cleanup --dry-run)
+! grep -qE 'prune|^rm |^systemctl stop' "$SAFE_LOG" || fail "a dry run changed something: $(cat "$SAFE_LOG")"
+[[ $output == *"would clear $cleanup_root/var/cache/PackageKit"* && $output == *"dry run: nothing changed"* ]] ||
+    fail "a dry run did not list what would go"
 
 if output=$(PATH="$stub:$PATH" bash "$repo/scripts/mok-reenroll.sh" 2>&1); then
     fail "mok-reenroll accepted an unreadable Secure Boot state"
 fi
 [[ $output == *"cannot determine Secure Boot state"* ]] || fail "missing Secure Boot failure diagnostic"
+mkdir -p "$tmp/mokbin" "$tmp/certs"
+cat >"$tmp/mokbin/mokutil" <<'STUB'
+#!/bin/bash
+printf 'mokutil %s\n' "$*" >>"$SAFE_LOG"
+case "$1" in
+    --sb-state) echo "${MOK_SB:-SecureBoot enabled}" ;;
+    --test-key) if [ "${MOK_ENROLLED:-no}" = yes ]; then echo "$2 is already enrolled"; else echo "$2 is not enrolled"; fi ;;
+esac
+STUB
+printf '#!/bin/bash\nexit 0\n' >"$tmp/mokbin/lspci"
+printf '#!/bin/bash\nexit 0\n' >"$tmp/mokbin/lsmod"
+chmod +x "$tmp/mokbin"/*
+mok() { PATH="$tmp/mokbin:$stub:$PATH" MOK_CERT_DIR="$tmp/certs" bash "$repo/scripts/mok-reenroll.sh" </dev/null 2>&1; }
+: >"$SAFE_LOG"
+output=$(MOK_SB='SecureBoot disabled' mok) || fail "mok-reenroll failed with Secure Boot off"
+[[ $output == *"nothing to enroll"* ]] || fail "Secure Boot off was not reported"
+if output=$(MOK_SB='SecureBoot unknown' mok); then fail "mok-reenroll accepted an unknown Secure Boot state"; fi
+if output=$(mok); then fail "mok-reenroll went on without a signing key"; fi
+[[ $output == *"no signing key under $tmp/certs"* ]] || fail "a missing signing key was not reported"
+: >"$tmp/certs/public_key.der"
+output=$(MOK_ENROLLED=yes mok) || fail "an enrolled key was treated as a failure"
+[[ $output == *"already enrolled"* ]] || fail "an enrolled key was not recognised"
+if output=$(mok); then fail "mok-reenroll imported a key without a terminal"; fi
+[[ $output == *"needs an interactive terminal"* ]] || fail "no terminal refusal before the import"
+! grep -q 'mokutil --import' "$SAFE_LOG" || fail "a key was imported without a confirmation"
 
 cat >"$stub/ollama" <<'STUB'
 #!/bin/bash
@@ -164,6 +210,7 @@ STUB
     fi
     [[ $output == *"cannot determine Secure Boot state; verify it before upgrading"* ]] || fail "missing upgrade Secure Boot failure diagnostic"
     ! grep -q 'system-upgrade' "$SAFE_LOG" || fail "upgrade download began without Secure Boot validation"
+    ! grep -q '^sudo dnf upgrade' "$SAFE_LOG" || fail "the current release was updated before the preflight checks passed"
 fi
 
 cat >"$stub/lsblk" <<'STUB'
@@ -213,6 +260,10 @@ case "$1" in
         if [ "$disk" = "${SMART_FAIL_DEVICE:-}" ]; then
             echo 'SMART overall-health self-assessment test result: FAILED'; exit 8
         fi
+        # bit 6: the error log holds entries, while the disk itself passes
+        if [ "$disk" = "${SMART_HISTORY_DEVICE:-}" ]; then
+            echo 'SMART overall-health self-assessment test result: PASSED'; exit 64
+        fi
         echo 'SMART overall-health self-assessment test result: PASSED' ;;
     -A) [ "${AUDIT_READ_FAIL:-no}" != yes ]; exit ;;
     *) exit 0 ;;
@@ -257,7 +308,7 @@ fi
 mkdir "$tmp/smart-multi"
 : >"$SAFE_LOG"
 if output=$(PATH="$stub:$PATH" SMART_STATE_DIR="$tmp/smart-multi" SMART_MULTIPLE=yes NVME_START=yes SMART_FINISH=yes \
-    SMART_FAIL_DEVICE=/dev/nvmeB SMART_RESULT_FAIL_DEVICE=/dev/sataA SMART_UNSUPPORTED_DEVICE=/dev/sataB \
+    SMART_FAIL_DEVICE=/dev/nvmeB SMART_RESULT_FAIL_DEVICE=/dev/sataA SMART_UNSUPPORTED_DEVICE=/dev/sataB SMART_HISTORY_DEVICE=/dev/nvmeA \
     bash "$repo/scripts/deep-health.sh" 2>&1); then
     fail "multi-disk audit accepted device errors"
 fi
@@ -266,7 +317,8 @@ for disk in /dev/nvmeA /dev/nvmeB /dev/sataA /dev/sataB; do
     grep -q "smartctl -A $disk$" "$SAFE_LOG" || fail "SMART attributes omitted $disk"
 done
 [[ $output == *"/dev/nvmeA: self-test passed"* ]] || fail "a healthy NVMe disk was not tested"
-[[ $output == *"/dev/nvmeB: SMART health query failed"* ]] || fail "second NVMe failure was hidden"
+[[ $output == *"/dev/nvmeB: SMART reports a failing disk"* ]] || fail "second NVMe failure was hidden"
+[[ $output == *"/dev/nvmeA: SMART lists past threshold crossings or logged errors"* ]] || fail "SMART error log entries were hidden"
 [[ $output == *"/dev/sataA: self-test:"* ]] || fail "SATA self-test failure was hidden"
 [[ $output == *"/dev/sataB: short self-tests not supported; skipped"* ]] || fail "unsupported SATA self-test was not reported"
 ! grep -q 'smartctl -t short /dev/sataB' "$SAFE_LOG" || fail "unsupported SATA self-test was started"
@@ -293,8 +345,7 @@ fi
 [[ $output == *"/dev/sataA: another self-test is running; left unchanged"* ]] || fail "running SATA test was not preserved"
 ! grep -q 'smartctl -t short /dev/sataA' "$SAFE_LOG" || fail "a running SATA self-test was replaced"
 
-# The Fedora 44 -> 45 transaction of 2026-11-03: RPM Fusion's 45-1 release packages required a path
-# with a trailing slash, and ES-DE had no Fedora 45 build.
+# dnf's report for N+1 builds with an unmet requirement and for a package without an N+1 build
 if [ "$EUID" -ne 0 ]; then
     upg="$tmp/upgrade"
     mkdir -p "$upg/bin" "$upg/repo/scripts/lib" "$upg/hw"
@@ -318,8 +369,11 @@ LOG
 #!/bin/bash
 printf 'sudo %s\n' "$*" >>"$SAFE_LOG"
 case "$*" in
+    "snapper list-configs") [ "${SNAPPER_CONFIG:-no}" = no ] || printf 'Config | Subvolume\n-------+----------\nroot   | /\n' ;;
     snapper*) exit 1 ;;
-    *"system-upgrade download"*--assumeno*) [[ "$*" == *--allowerasing* ]] || cat "$UPGRADE_PROBLEMS" ;;
+    *"system-upgrade download"*--assumeno*)
+        printf 'resolve LC_ALL=%s\n' "${LC_ALL-}" >>"$SAFE_LOG"
+        [[ "$*" == *--allowerasing* ]] || cat "$UPGRADE_PROBLEMS" ;;
     *repoquery*emulationstation-de*) ;;
 esac
 exit 0
@@ -344,6 +398,10 @@ STUB
         [[ $output == *"https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-45.noarch.rpm"* ]] ||
         fail "no RPM Fusion reinstall command"
     [[ $output == *"sudo dnf install emulationstation-de"* ]] || fail "no reinstall hint for a package without a build"
+    if ! grep -q '^resolve LC_ALL=C$' "$SAFE_LOG" || grep '^resolve ' "$SAFE_LOG" | grep -qvx 'resolve LC_ALL=C'; then
+        fail "dnf's report was parsed in a translated locale"
+    fi
+    [[ $download == *"--setopt=skip_if_unavailable=True"* ]] || fail "a repo without a build for the new release can stop the download"
     : >"$SAFE_LOG"
     output=$(PATH="$upg/bin:$stub:$PATH" TMPDIR="$upg" HW_ROOT="$upg/hw" UPGRADE_PROBLEMS=/dev/null NO_COLOR=1 \
         bash "$upg/repo/scripts/fedora-upgrade.sh" --yes 2>&1) || fail "a clean upgrade failed: $output"
@@ -351,6 +409,13 @@ STUB
     [[ $download != *filelists* && $download != *--exclude* && $download != *--allowerasing* ]] ||
         fail "a clean upgrade got workaround options: $download"
     [[ $output != *"reinstall what the upgrade removed"* ]] || fail "a clean upgrade listed removals"
+    : >"$SAFE_LOG"
+    if output=$(PATH="$upg/bin:$stub:$PATH" TMPDIR="$upg" HW_ROOT="$upg/hw" UPGRADE_PROBLEMS=/dev/null NO_COLOR=1 \
+        SNAPPER_CONFIG=yes bash "$upg/repo/scripts/fedora-upgrade.sh" --yes 2>&1); then
+        fail "the upgrade went on although snapper could not take the restore point"
+    fi
+    [[ $output == *"snapper has a root config but took no snapshot"* ]] || fail "no diagnostic for the failed snapshot"
+    ! grep -q 'system-upgrade download' "$SAFE_LOG" || fail "the download began without a restore point"
 fi
 
 echo "All helper script failure-path tests passed."

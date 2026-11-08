@@ -109,8 +109,8 @@ hw_is_hybrid_gpu() {
     return 1
 }
 
-# Firmware entries and Fedora's mounted ESP reveal Windows; other unmounted ESPs are not inspected.
-# Fixture roots skip firmware access.
+# Firmware boot entries reveal Windows. Fedora mounts the ESP root-only, so the ESP fallback serves
+# fixture roots, which skip firmware access, and runs as root.
 hw_has_windows() {
     if [ -z "$HW_ROOT" ]; then
         efibootmgr 2>/dev/null | grep -q 'Windows Boot Manager' && return 0

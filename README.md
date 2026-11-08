@@ -43,7 +43,7 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 ## Repository Structure
 
 ```text
-├── .github/                    # CI workflows (shellcheck, validate, gitleaks, trivy), Dependabot, PR template
+├── .github/                    # CI workflows (shellcheck, validate, gitleaks, trivy), Dependabot, PR and issue templates
 ├── configs/
 │   ├── conky/conky.conf        # Desktop system stats widget
 │   ├── fastfetch/config.jsonc  # fastfetch module layout
@@ -64,10 +64,11 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   │       └── 50-audio.conf   # Opt-in (AUDIO_TRIM): hide onboard AMD, iGPU HDMI and webcam audio
 │   ├── systemd/
 │   │   └── conky.service       # ~/.config/systemd/user/ — Conky autostart service
-│   └── bashrc                  # ~/.bashrc additions (ble.sh, zoxide, aliases)
+│   └── bashrc                  # ~/.bashrc additions (zoxide, aliases, mise, starship); the setup adds the ble.sh lines
 ├── system/
 │   ├── nvidia-wayland.conf     # /etc/environment.d/ — NVIDIA Wayland env vars (NVIDIA only, not on hybrid laptops)
 │   ├── nvidia-performance.conf # /etc/modprobe.d/ — NVIDIA kernel options (NVIDIA only)
+│   ├── nvidia-580xx-storage.conf # /etc/modprobe.d/ — 580xx: video memory saved to /var/tmp, not /tmp
 │   ├── nvidia-vram-check.sh    # /usr/local/bin/ — read-only NVIDIA suspend storage check
 │   ├── nvidia-vram-check.service # /etc/systemd/system/ — require sufficient storage before sleep
 │   ├── 99-tweaks.conf          # /etc/sysctl.d/ — performance tweaks
@@ -86,7 +87,7 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   ├── 70-ntsync.rules         # /etc/udev/rules.d/ — ntsync user access
 │   ├── 70-lamzu.rules          # /etc/udev/rules.d/ — LAMZU mouse configurator access (by USB ID)
 │   ├── 99-dualsense.rules      # /etc/udev/rules.d/ — DualSense touchpad/motion noise fix
-│   ├── 99-disable-wakeup.rules # /etc/udev/rules.d/ — LAMZU dongles must not wake the system
+│   ├── 99-disable-wakeup.rules # /etc/udev/rules.d/ — no LAMZU USB device may wake the system
 │   ├── libinput-overrides.quirks # /etc/libinput/ — no mouse debouncing for LAMZU mice
 │   ├── hugepages.conf          # /etc/tmpfiles.d/ — transparent hugepages
 │   ├── kwin-display-fix.sh     # /usr/lib/systemd/system-sleep/ — USB suspend/resume quirks
@@ -115,6 +116,8 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 ├── tests/
 │   ├── hw-detect.sh            # Detection and hwstat tests against fixture sysfs trees
 │   ├── verify-setup.sh         # Read-only verification failure paths with command stubs
+│   ├── fedora-setup.sh         # The setup run end to end with every system change stubbed
+│   ├── ollama-setup.sh         # Ollama install, hardening drop-in and model tuning with stubs
 │   ├── helper-scripts.sh       # Maintenance command failures and upgrade safeguards
 │   ├── setup-configs.sh        # Numbered user config backups and repeat installs
 │   ├── sleep-hooks.sh          # Display lifecycle, USB quirks and systemd unit ordering
@@ -124,9 +127,13 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   ├── fresh-install.sh        # CI: apply-system.sh and the README's copy steps on a fresh Fedora
 │   └── check-packages.sh       # CI: literal package names resolve in the scoped repos
 ├── setup.conf.example          # Per-machine overrides; copy to setup.conf
+├── README.md                   # This guide
+├── CHANGELOG.md                # What changed, newest first
 ├── CONTRIBUTING.md             # Checks to run, conventions, repository settings
 ├── AGENTS.md                   # Boundaries for AI coding agents
 ├── SECURITY.md                 # How to report a vulnerability
+├── LICENSE                     # MIT
+├── .editorconfig, .gitattributes, .gitignore, .mailmap   # Editor, line-ending, ignore and author settings
 └── wallpaper/
     └── wallpaper.jpg           # Darth Vader — dark, teal glow, red lightsaber (5120x2880)
 ```
@@ -178,7 +185,7 @@ Do this before the NVIDIA driver, or with Secure Boot on run `sudo bash scripts/
 sudo cp system/dnf.conf /etc/dnf/dnf.conf
 ```
 
-Key settings: `installonly_limit=2` (max 2 kernels), `max_parallel_downloads=10`, `fastestmirror=True`
+Key settings: `installonly_limit=2` (max 2 kernels), `max_parallel_downloads=10`, `fastestmirror=True`, and `skip_if_unavailable=False`, Fedora's default: a repo dnf cannot reach stops the run instead of silently going without its updates. `--setopt=<repo-id>.skip_if_unavailable=True` gets past an outage of one repo
 
 ### 3. RPM Fusion
 
@@ -244,12 +251,17 @@ sudo systemctl daemon-reload
 sudo systemctl enable nvidia-vram-check.service
 ```
 
-On suspend the driver saves the video memory to `/tmp`, the tmpfs default. The read-only
-capacity check runs before sleep and the NVIDIA sleep services: it needs room for the sum
-of all GPU memory plus 5%, following
+On suspend the driver saves the video memory. The open kernel module of the current branch
+(615.71.09 and later) keeps it in RAM unless `NVreg_TemporaryFilePath` names a directory;
+the 580xx branch writes it to `/tmp`, a tmpfs of half the RAM, which cannot hold a card with
+more than about 47% of the RAM. On 580xx, `apply-system.sh` therefore also deploys
+`nvidia-580xx-storage.conf`, which moves the file to `/var/tmp` on disk (copy it to
+`/etc/modprobe.d/` by hand on such a machine). The read-only capacity check runs before
+sleep and the NVIDIA sleep services: it needs room for the sum of all GPU memory plus 5%,
+following
 [NVIDIA's sizing guidance](https://download.nvidia.com/XFree86/Linux-x86_64/580.105.08/README/powermanagement.html),
-and on a RAM-backed store it counts `MemAvailable`, so a suspend with a loaded model
-filling the RAM is refused with a message instead of failing halfway. Inspect refusals
+and for a store in RAM or on a tmpfs it counts `MemAvailable`, so a suspend with a loaded
+model filling the RAM is refused with a message instead of failing halfway. Inspect refusals
 with `journalctl -u nvidia-vram-check.service`.
 
 `kde-display-sleep.service` captures enabled, connected external displays before
@@ -337,11 +349,31 @@ sudo sysctl --system
 | Key | Value | Purpose |
 | --- | --- | --- |
 | `vm.swappiness` | `180` | Favour ZRAM over disk swap |
+| `vm.page-cluster` | `0` | No swap readahead; zram reads one page at a time |
 | `vm.max_map_count` | `2147483642` | Required for some games (Steam/Proton) |
-| `net.core.rmem_max` | `16777216` | Better network throughput |
-| `net.core.wmem_max` | `16777216` | Better network throughput |
+| `net.core.rmem_max`, `net.core.wmem_max` | `16777216` | Better network throughput |
 | `vm.compaction_proactiveness` | `0` | Disable proactive memory compaction — reduces jitter |
 | `vm.page_lock_unfairness` | `1` | Lower page lock contention |
+| `fs.inotify.max_user_instances` | `512` | File watchers in editors and Steam |
+| `kernel.kptr_restrict` | `1` | Kernel addresses hidden from users; perf and BPF under sudo still resolve symbols |
+| `kernel.dmesg_restrict` | `1` | Kernel log for root only |
+| `net.core.bpf_jit_harden` | `2` | Hardened BPF JIT |
+| `kernel.unprivileged_bpf_disabled` | `1` | No BPF for unprivileged users; **stays on until reboot** |
+| `kernel.yama.ptrace_scope` | `1` | ptrace only on own child processes (see Upgrading Fedora) |
+| `kernel.kexec_load_disabled` | `1` | No runtime kernel replacement, which also disables kexec reboots and kdump; **stays on until reboot** |
+| `kernel.oops_limit` | `100` | Panic after 100 oopses instead of letting an exploit retry |
+| `vm.mmap_rnd_bits` | `32` | Maximum ASLR entropy for 64-bit programs; 32-bit games keep the default |
+| `fs.protected_fifos`, `fs.protected_regular` | `2` | No writing to other users' FIFOs and files in sticky directories |
+| `fs.protected_symlinks`, `fs.protected_hardlinks` | `1` | Link attacks in shared directories blocked |
+| `fs.suid_dumpable` | `0` | No core dumps of setuid programs |
+| `dev.tty.ldisc_autoload` | `0` | Users cannot load TTY line disciplines |
+| `net.ipv4.tcp_syncookies` | `1` | SYN flood protection |
+| `net.ipv4.tcp_rfc1337` | `1` | Drop TIME-WAIT assassination packets |
+| `net.ipv4.conf.{all,default}.{accept,secure,send}_redirects`, `net.ipv6.conf.{all,default}.accept_redirects` | `0` | No ICMP redirects on a workstation |
+| `net.ipv4.conf.all.accept_source_route`, `net.ipv6.conf.all.accept_source_route` | `0` | No source routing |
+| `net.ipv6.conf.{all,default}.use_tempaddr` | `2` | Outgoing IPv6 connections use privacy addresses |
+| `net.ipv4.conf.{all,default}.log_martians` | `1` | Log packets with impossible source addresses |
+| `net.ipv4.conf.{all,default}.rp_filter` | `2` | Loose reverse-path filter; strict breaks Mullvad's and containers' asymmetric routes |
 
 Transparent hugepages are configured via `system/hugepages.conf` (deployed to `/etc/tmpfiles.d/`):
 
@@ -683,7 +715,7 @@ cp configs/fish/functions/ya.fish ~/.config/fish/functions/ya.fish
 sudo dnf install -y zoxide fzf ripgrep fd-find bat eza git-delta
 ```
 
-lazygit is not in the Fedora repos and the `atim/lazygit` COPR stopped at 0.47, so `fedora-setup.sh` installs the pinned upstream release (v0.66.2, SHA-256 checked) to `/usr/local/bin`.
+lazygit is not in the Fedora repos and the `atim/lazygit` COPR stopped at 0.47, so `fedora-setup.sh` installs the pinned upstream release (v0.66.3, SHA-256 checked) to `/usr/local/bin`.
 
 ### ble.sh (bash syntax highlighting)
 
@@ -694,7 +726,7 @@ Pinned to a master commit; `origin` must exist because `.gitmodules` uses a rela
 ```bash
 git init -q /tmp/ble.sh && cd /tmp/ble.sh
 git remote add origin https://github.com/akinomyoga/ble.sh.git
-git fetch -q --depth 1 origin d81fd54feb0d996fdff20dca27eaf0201f7015cc && git checkout -q FETCH_HEAD
+git fetch -q --depth 1 origin 152942758f567e51fd17bdc7b3783d27b3c476aa && git checkout -q FETCH_HEAD
 git submodule update -q --init --recursive --depth 1
 make install PREFIX=~/.local
 ```
@@ -942,9 +974,9 @@ Not shipped — provide your own:
 
 > ROMs on a separate disk: move `~/Emulation/roms` to the disk and symlink it back, then grant the emulator Flatpaks access to that path (`flatpak override --user --filesystem=<path> <id>`).
 
-DuckStation uses the unmodified official `v0.1-11894` AppImage. Both the executable and
+DuckStation uses the unmodified official `v0.1-12442` AppImage. Both the executable and
 the license are checked against pinned SHA-256 values before replacement. Its separate
-[CC BY-NC-ND 4.0 license](https://github.com/stenzek/duckstation/blob/c66b2694da65cece8886ed3d4a069098831f8358/LICENSE)
+[CC BY-NC-ND 4.0 license](https://github.com/stenzek/duckstation/blob/dd4a0eb779296a525f8b10b6d9a45911ad6d088f/LICENSE)
 includes noncommercial and no-derivatives conditions; this repository's MIT license
 does not relicense DuckStation. License and source notices are installed alongside it.
 
@@ -993,8 +1025,8 @@ sudo bash scripts/ollama-setup.sh
 ```
 
 - **Upstream build**: Fedora's `ollama` links ROCm and pulls ~4 GiB of AMD libraries that are useless next to an NVIDIA card, so the script installs the CUDA build from Ollama's GitHub release, pinned by version and SHA-256. Re-run it after a version bump.
-- **CUDA, not Vulkan**: `nvidia_uvm` is often loaded only when the first desktop program asks for CUDA, after the service has started, and the hardened unit cannot load it itself. A second drop-in loads it and creates `/dev/nvidia-uvm` before the service starts; without it Ollama quietly runs on Vulkan. `ollama-setup.sh test` and `verify-setup.sh` report the backend, and installs from before this drop-in get it by running the script again.
-- **Hardened unit**: a drop-in applies the directives the nixpkgs module uses (`systemd-analyze security` 9.2 → 2.2) — it resets the `$PATH` the installer bakes into the unit and allows only the accelerator devices.
+- **CUDA, not Vulkan**: `nvidia_uvm` is often loaded only when the first desktop program asks for CUDA, after the service has started, and the hardened unit cannot load it itself. A second drop-in loads it and creates `/dev/nvidia-uvm` before the service starts; without it Ollama quietly runs on Vulkan. `ollama-setup.sh test` and `verify-setup.sh` report the backend, and an install without it gets it by running the script again.
+- **Hardened unit**: a drop-in applies the nixpkgs module's sandbox directives (`systemd-analyze security` 9.2 → 2.2 before `PrivateTmp`, `PrivateUsers`, `RestrictAddressFamilies` and `UMask` joined them) — it resets the `$PATH` the installer bakes into the unit and allows only the accelerator devices. An `ollama` user that upstream's `install.sh` created keeps its home, `/usr/share/ollama`, which the drop-in makes writable.
 - **VRAM cap**: the card also drives the desktop, and a full load leaves under 1 GB free, which freezes the lock screen on wake (the same failure as Strata's, above). `OLLAMA_GPU_OVERHEAD` sets a 3 GiB floor, but only a baked `num_gpu` holds the headroom, so the script sweeps GPU layer counts and bakes the largest that still leaves about 3 GB free at `num_ctx 8192`. Every Ollama version fits the layers differently, which is why a re-run re-tunes.
 - **Running it**: `ollama run gemma4-12b-heretic`, or pick the model in Alpaca. In Alpaca, add an Ollama instance at `http://127.0.0.1:11434` and leave **Override Parameters** off — on, it sends its own `num_ctx` and overrides the baked cap that holds the VRAM margin.
 
@@ -1026,7 +1058,7 @@ Retro emulation setup — installs ES-DE (Terra repo) and the standalone emulato
 
 ### `scripts/strata-setup.sh`
 
-Local LLM setup — CUDA toolkit from NVIDIA's repo, Strata pinned to a release, the model picked by RAM, a 3 GiB VRAM reserve for the desktop, Strata's refusal vector, idle unload and DuckDuckGo web search. See [Local LLM (Strata)](#local-llm-strata).
+Local LLM setup — CUDA toolkit from NVIDIA's repo, Strata pinned to a release, the model picked by RAM, a 3 GiB VRAM reserve for the desktop, Strata's refusal vector and, for the Coder, idle unload and DuckDuckGo web search. See [Local LLM (Strata)](#local-llm-strata).
 
 ### `scripts/ollama-setup.sh`
 
@@ -1042,13 +1074,13 @@ One reading per call — `cpu-temp`, `gpu-name`, `gpu-temp`, `gpu-load`, `gpu-vr
 
 ### `scripts/deep-health.sh`
 
-Hardware audit: BIOS version and POST time, Secure Boot and MOK state, machine check counters, per-DIMM memory speed, temperatures, every physical NVMe/SATA disk's SMART data and supported short self-test, btrfs error counters and scrub, NTFS state, GPU, failed units. It preserves running self-tests, skips unsupported tests, and continues to later disks after a device failure. USB bridges and virtual disks are outside SMART discovery. Install the documented health-tool prerequisites before running it; missing `smartctl` is reported as a failure. `sysinfo.sh` is the glance; this is the check after a BIOS flash or when boot feels wrong. A single-disk audit takes around six minutes; each short test waits at most 450 seconds and btrfs scrub time depends on data size. Failed or unreadable health checks exit nonzero.
+Hardware audit: BIOS version and POST time, Secure Boot and MOK state, machine check counters, per-DIMM memory speed, temperatures, every physical NVMe/SATA disk's SMART data and supported short self-test, btrfs error counters and scrub, NTFS state, GPU, failed units. It preserves running self-tests, skips unsupported tests, and continues to later disks after a device failure. USB bridges and virtual disks are outside SMART discovery. Install its tools first (`sudo dnf install smartmontools ntfsprogs dmidecode lm_sensors`); missing `smartctl` is reported as a failure. `sysinfo.sh` is the glance; this is the check after a BIOS flash or when boot feels wrong. A single-disk audit takes around six minutes; each short test waits at most 450 seconds and btrfs scrub time depends on data size. Failed or unreadable health checks exit nonzero.
 
 Firmware time far above normal (25 s or more on a desktop board) can mean the embedded controller is wedged. A reboot and Load Optimized Defaults do not clear it; only a full standby power drain does — PSU switch off, hold the case power button 30 seconds.
 
 ### `scripts/disk-cleanup.sh`
 
-Space back from what grows unnoticed: snapper's snapshot timeline (listed first, trimmed only after a y/N), unused flatpak runtimes, PackageKit's and dnf's package caches, docker's unused images and build cache (volumes stay) and the calling user's unused podman images. Installed to `~/scripts/` by the setup; run with sudo. It waits for btrfs to release the deleted snapshots, which takes minutes after a big trim.
+Space back from what grows unnoticed: snapper's snapshot timeline (listed first, trimmed only after a y/N), unused flatpak runtimes, PackageKit's and dnf's package caches and, after a y/N of its own, docker's unused images and build cache (volumes stay) and the calling user's unused podman images, locally built ones included. Restore points and container images go only after an interactive yes, and `--dry-run` lists everything it would remove without changing anything. Installed to `~/scripts/` by the setup; run with sudo. It waits for btrfs to release the deleted snapshots, which takes minutes after a big trim.
 
 ### `scripts/mok-reenroll.sh`
 
@@ -1060,7 +1092,7 @@ Upgrades to the next Fedora release; see [Upgrading Fedora](#upgrading-fedora). 
 
 ### `scripts/verify-setup.sh`
 
-Checks the live system against what the setup configures: failed units, kernel arguments, auditd, zram, the sched_ext scheduler, tuned, the NVIDIA driver and suspend backing capacity, sleep services, gamescope's capability, NTSync, the firewall, SELinux, every deployed `system/` file, pending `.rpmnew` files and, when installed, ES-DE and the CUDA repo exclude. Run it after `fedora-setup.sh` and on the first boot of a new Fedora release. It changes nothing and exits 1 when a check fails.
+Checks the live system against what the setup configures: failed units, kernel arguments, auditd, zram, the sched_ext scheduler, tuned, the NVIDIA driver and suspend backing capacity, sleep services, gamescope's capability, NTSync, the firewall, SELinux, every deployed `system/` file and the RPM language list, unmounted fstab entries, the filesystem drivers and NVIDIA module of a newly installed kernel before it boots, the RPM Fusion release packages, pending `.rpmnew` files and, when installed, ES-DE, the CUDA repo exclude and the GPU backend a running Ollama found. Run it after `fedora-setup.sh` and on the first boot of a new Fedora release. It changes nothing and exits 1 when a check fails.
 
 ### `scripts/rice-start.sh` — alias: `rice`
 
@@ -1121,10 +1153,13 @@ pgrep conky && echo "Conky running"
 
 ## Undoing Changes
 
+Run in a terminal, the scripts that change the system leave their ✓ and ! lines in the journal, so `journalctl -t fedora-kde-setup` shows what ran and when.
+
 - **Pre-install recovery**: before package or configuration changes, `fedora-setup.sh` creates private read-only root and separate home snapshots plus verified `/boot` and EFI archives under `/.fedora-kde-setup-backups/run-*`. A `READY` marker identifies a completed backup; `RECOVERY.txt`, `layout.txt` and `mounts.txt` record recovery instructions, original layout and RTC policy. Recover from a Fedora live USB after saving newer work elsewhere. A later run reuses a completed restore point instead of adding one; Snapper does not manage them, and `scripts/disk-cleanup.sh` lists them and removes them on request. They protect the supported root/home/boot layout; external disks, firmware and EFI NVRAM are outside their scope. Filesystem snapshots on the same disk are not protection against disk loss or an atomic application transaction.
 - **Later system deployments**: `apply-system.sh` separately takes a Snapper root snapshot and prints its number. `sudo snapper -c root status <n>..0` lists what changed since, and `sudo snapper -c root undochange <n>..0 <path>` reverts a file. Its root snapshot excludes `/boot`; use the original pre-install archives when reverting that install, or remove later kernel arguments with `sudo grubby --update-kernel=ALL --remove-args="<args>"`.
-- **System files**: every target listed under Repository Structure is a file the setup adds, so deleting it undoes it, except `/etc/dnf/dnf.conf` and `/etc/tuned/ppd.conf`, which replace package defaults. Delete those and run `sudo dnf reinstall <package>` (`rpm -qf <file>` names it); a reinstall alone keeps the edited file because it is `%config(noreplace)`. The login screen wallpaper is one key in `/etc/plasmalogin.conf`; `apply-system.sh` with `RICE=no` removes it.
+- **System files**: every target listed under Repository Structure is a file the setup adds, so deleting it undoes it once its units are off: run `sudo systemctl disable --now nvidia-vram-check.service kde-display-sleep.service usb-autosuspend.service` first, because a deleted unit that `sleep.target` still requires stops every suspend, and `sudo systemctl daemon-reload` after. The exceptions are `/etc/dnf/dnf.conf` and `/etc/tuned/ppd.conf`, which replace package defaults. Delete those and run `sudo dnf reinstall <package>` (`rpm -qf <file>` names it); a reinstall alone keeps the edited file because it is `%config(noreplace)`. The login screen wallpaper is one key in `/etc/plasmalogin.conf`; `apply-system.sh` with `RICE=no` removes it. `kernel.kexec_load_disabled` and `kernel.unprivileged_bpf_disabled` stay set until the next boot after `/etc/sysctl.d/99-tweaks.conf` is gone.
 - **Services, firewall, KDE settings**: the commands in the guide above are the record; `systemctl unmask`, `firewall-cmd --permanent --add-service=<name>` and `kwriteconfig6` with the old value reverse them.
+- **Changes with no file to delete**: `fedora-setup.sh` swaps `glibc-all-langpacks` for your languages' langpacks and limits RPM translations to them in `/etc/rpm/macros.image-language-conf`, which `apply-system.sh` rewrites on every run (reinstall `glibc-all-langpacks`, delete the file and stop running `apply-system.sh` to undo it). It disables ABRT (`sudo systemctl enable --now abrtd`), removes Fedora's Flatpak remote when nothing uses it, and writes these KDE keys with `kwriteconfig6`: KWin `LatencyPolicy`, the gamepad, zoom, shake-cursor and blur plugins, the Meta-only launcher shortcut, launch feedback, the splash screen, `loginMode`, `AnimationDurationFactor`, Baloo indexing and the lock-screen wallpaper.
 - **User configs**: `fedora-setup.sh` keeps replaced config files, including files within theme directories, the Conky unit, optional audio rules and helper scripts, as `<file>.~N~` next to each file. It preserves unrelated files inside copied theme directories. KDE settings written through `kwriteconfig6` need their own reversal.
 - **GRUB default**: `/etc/default/grub.orig` is the file before the setup edited it; copy it back and run `sudo grub2-mkconfig -o /boot/grub2/grub.cfg`.
 - **Terminal extras**: `fedora-setup.sh` installs lazygit to `/usr/local/bin`, ble.sh to `~/.local/share/blesh`, the JetBrains Mono Nerd Font to `~/.local/share/fonts/JetBrainsMono`, and the helper scripts to `~/scripts`; remove those, then delete the two blocks between the `# >>> fedora-kde-setup` and `# <<< fedora-kde-setup` markers from `~/.bashrc`, or restore `~/.bashrc.orig`.
@@ -1142,9 +1177,9 @@ sudo dnf system-upgrade reboot     # runs the upgrade offline and boots into the
 bash scripts/verify-setup.sh       # on the first boot of the new release
 ```
 
-`fedora-upgrade.sh` stops until the new release is out (its directory on dl.fedoraproject.org goes live on release day), brings the current release up to date and asks for a reboot if that installed a newer kernel. It refuses to start with less than 10 GB free on `/` or 200 MB on `/boot`, or on an NVIDIA machine whose driver is not loaded or whose akmods key is not enrolled under Secure Boot. Then it takes a snapper snapshot of `/` and downloads the upgrade.
+`fedora-upgrade.sh` stops until the new release is out (its directory on dl.fedoraproject.org goes live on release day), refuses to start with less than 10 GB free on `/` or 200 MB on `/boot`, or on an NVIDIA machine whose driver is not loaded or whose akmods key is not enrolled under Secure Boot, then brings the current release up to date and asks for a reboot if that installed a newer kernel. Then it takes a snapper snapshot of `/`, and stops if snapper has a root config but cannot take it, and downloads the upgrade.
 
-`skip_if_unavailable=True` in `dnf.conf` keeps a third-party repo that has no build for the new release from stopping the download. When dnf cannot resolve the upgrade, the script reads dnf's own report before it asks once. It loads the filelists metadata only when dnf asks for it. A package with no build for the new release yet, typically one linked against a library the release replaced, is removed by `--allowerasing`. A package whose new build cannot be installed because that build's own requirements are unmet is `--exclude`d, so `--allowerasing` drops the installed copy instead of failing on the new one. When that package is a repository's `*-release` package, the repository's `.repo` files go with it: the script says so, prints the commands that reinstall everything it removed, and `verify-setup.sh` fails until both RPM Fusion release packages match the running release. When every repository is ready on release day, none of this runs. In the first days after a release, RPM Fusion's updates can run ahead of or behind Fedora's; `dnf upgrade --exclude=<name>` bridges those days. akmods rebuilds the NVIDIA module for the new kernel, at the latest on the first boot before the login screen. Fedora 45's mandatory RPM signatures do not stop it, because akmods installs its local build through `dnf --nogpgcheck`.
+The download runs with `skip_if_unavailable=True`, so a third-party repo that has no build for the new release does not stop it; `dnf.conf` keeps Fedora's `False` for everything else. When dnf cannot resolve the upgrade, the script reads dnf's own report before it asks once. It loads the filelists metadata only when dnf asks for it. A package with no build for the new release yet, typically one linked against a library the release replaced, is removed by `--allowerasing`. A package whose new build cannot be installed because that build's own requirements are unmet is `--exclude`d, so `--allowerasing` drops the installed copy instead of failing on the new one. When that package is a repository's `*-release` package, the repository's `.repo` files go with it: the script says so, prints the commands that reinstall everything it removed, and `verify-setup.sh` fails until both RPM Fusion release packages match the running release. When every repository is ready on release day, none of this runs. In the first days after a release, RPM Fusion's updates can run ahead of or behind Fedora's; `dnf upgrade --exclude=<name>` bridges those days. akmods rebuilds the NVIDIA module for the new kernel, at the latest on the first boot before the login screen. Fedora 45's mandatory RPM signatures do not stop it, because akmods installs its local build through `dnf --nogpgcheck`.
 
 `/etc/dnf/dnf.conf` and `/etc/tuned/ppd.conf` are the package-owned files this setup replaces. When `verify-setup.sh` reports `.rpmnew` versions of them or other drift, review the package defaults for required upstream changes before re-running `scripts/apply-system.sh`. Reapplying overwrites those paths with this repository's versions.
 
@@ -1157,6 +1192,9 @@ What Fedora 45 changes for this setup (from its [ChangeSet](https://fedoraprojec
 - **Conky 1.24** takes the background's transparency from `own_window_colour` and ignores the old ARGB settings, so a Conky config from before the upgrade draws an opaque black box. Copy `configs/conky/conky.conf` to `~/.config/conky/` again and restart the `conky` user service.
 - **Lua 5.5**: Conky is rebuilt against it, and `configs/conky/conky.conf` parses and runs unchanged.
 - **Kernel crypto userspace API (AF_ALG) gets restricted.** bluetoothd uses it, so pair a Bluetooth device once after the upgrade; `verify-setup.sh` checks that the service still runs.
+- **GCC 16**: CUDA 13.4's `nvcc` accepts it, so `strata-setup.sh` still builds Strata's engine.
+- **Python 3.15**: tools that uv or pipx installed for 3.14 stop starting until they are reinstalled (`uv tool install --reinstall <tool>`, `pipx reinstall-all`); the scripts here use only the standard library.
+- **Kernel 7.3** arrives as an update. Fedora still builds `ntfs3`, and since 7.3 it reads a file name with `:` on an NTFS disk as an alternate data stream (the new `ads` option, on by default). Do not add `ads=0` to fstab while a 7.2 kernel is the fallback: 7.2 rejects the option and `nofail` hides the failed mount. `verify-setup.sh` checks the new kernel's filesystem drivers and NVIDIA module before you boot it.
 
 ---
 

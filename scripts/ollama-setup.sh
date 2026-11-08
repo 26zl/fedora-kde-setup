@@ -20,13 +20,15 @@ TEAL='\033[38;2;0;200;168m'
 RED='\033[38;2;170;28;28m'
 RESET='\033[0m'
 if [ ! -t 1 ] || [ -n "${NO_COLOR-}" ]; then TEAL='' RED='' RESET=''; fi
-ok()      { echo -e "  ${TEAL}✓${RESET} $1"; }
-warn()    { echo -e "  ${RED}!${RESET} $1"; }
-section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; }
+# interactive runs also leave these lines in the journal: journalctl -t fedora-kde-setup
+journal() { [ ! -t 1 ] || logger -t fedora-kde-setup -- "${0##*/}: $*" 2>/dev/null || true; }
+ok()      { echo -e "  ${TEAL}✓${RESET} $1"; journal "ok: $1"; }
+warn()    { echo -e "  ${RED}!${RESET} $1"; journal "warning: $1"; }
+section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; journal "$1"; }
 
 # Update both values from the release's sha256sum.txt (./ollama-linux-amd64.tar.zst).
-OLLAMA_VERSION=v0.40.10
-OLLAMA_SHA256=1e8ad2d2a394efdd235bee74deec237badd95142ffba77588140ab2a9ecec227
+OLLAMA_VERSION=v0.40.15
+OLLAMA_SHA256=628c018404a4206493efd38e46251c154ede5141b8b8dc85c659b3b027c47379
 SRC=hf.co/llmfan46/gemma-4-12B-it-uncensored-heretic-GGUF:Q4_K_M
 # The model digest guards against changes to the mutable Hugging Face tag.
 MODEL_SHA256=0930ee39b491bfef38c2d8d843576672648b2b0460ff8bd2870a35d4f50e6735
@@ -49,10 +51,10 @@ free_mib() {
 }
 
 # Report free VRAM only after confirming the model is resident.
-load_free() {
+load_free() {  # num_gpu model
     curl -fsS -m 300 "$API/api/generate" -d \
-        "{\"model\":\"$NAME\",\"stream\":false,\"think\":false,\"keep_alive\":\"30s\",\"prompt\":\"hi\",\"options\":{\"num_ctx\":$CTX,\"num_gpu\":$1,\"num_predict\":1}}" >/dev/null 2>&1 || return 1
-    "$OLLAMA" ps 2>/dev/null | grep -q "$NAME" || return 1
+        "{\"model\":\"$2\",\"stream\":false,\"think\":false,\"keep_alive\":\"30s\",\"prompt\":\"hi\",\"options\":{\"num_ctx\":$CTX,\"num_gpu\":$1,\"num_predict\":1}}" >/dev/null 2>&1 || return 1
+    "$OLLAMA" ps 2>/dev/null | grep -q "$2" || return 1
     free_mib
 }
 
@@ -77,7 +79,7 @@ verify() {
     baked=$(get_baked_gpu) || baked=""
     [[ $baked =~ ^[0-9]+$ ]] || { warn "model has no valid num_gpu cap"; return 1; }
     "$OLLAMA" show "$NAME" --modelfile 2>/dev/null | grep -iE 'num_gpu|num_ctx' | sed 's/^/  baked: /' || true
-    free=$(load_free "$baked") || free=""
+    free=$(load_free "$baked" "$NAME") || free=""
     split=$("$OLLAMA" ps 2>/dev/null | awk -v n="$NAME" '$0 ~ n {for(i=1;i<=NF;i++) if($i ~ /%\//) print $i}') || split=""
     "$OLLAMA" stop "$NAME" >/dev/null 2>&1 || { warn "could not unload $NAME"; failed=1; }
     echo "  processor split (CPU/GPU): ${split:-n/a}"
@@ -115,7 +117,7 @@ section "Ollama $OLLAMA_VERSION (upstream)"
 if "$OLLAMA" --version 2>/dev/null | grep -q "version is ${OLLAMA_VERSION#v}$"; then
     ok "already installed"
 else
-    curl -fL --retry 3 -o "$tmp/ollama.tar.zst" \
+    curl -fL --connect-timeout 20 --speed-limit 1024 --speed-time 60 --retry 3 -o "$tmp/ollama.tar.zst" \
         "https://github.com/ollama/ollama/releases/download/$OLLAMA_VERSION/ollama-linux-amd64.tar.zst"
     echo "$OLLAMA_SHA256  $tmp/ollama.tar.zst" | sha256sum -c -
     systemctl stop ollama 2>/dev/null || true
@@ -128,6 +130,8 @@ fi
 getent group ollama >/dev/null || groupadd -r ollama
 getent passwd ollama >/dev/null || useradd -r -g ollama -d /var/lib/ollama -s /sbin/nologin ollama
 install -d -o ollama -g ollama /var/lib/ollama
+# upstream's install.sh creates the user with its key and models in /usr/share/ollama
+ollama_home=$(getent passwd ollama | cut -d: -f6)
 
 section "Hardened + VRAM-capped systemd unit"
 # Preserve a hand-tuned base unit while managing the setup's drop-ins.
@@ -176,6 +180,10 @@ RestrictSUIDSGID=true
 SystemCallArchitectures=native
 SystemCallFilter=@system-service @resources
 SystemCallFilter=~@privileged
+PrivateTmp=true
+PrivateUsers=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+UMask=0077
 
 # PrivateDevices would hide the accelerators, so allow them explicitly instead.
 PrivateDevices=false
@@ -187,6 +195,7 @@ DeviceAllow=char-nvidia-uvm rw
 DeviceAllow=char-drm rw
 DeviceAllow=char-fb rw
 HARDEN
+case $ollama_home in /var/lib/ollama | / | "") ;; *) printf 'ReadWritePaths=%s\n' "$ollama_home" >>"$DROPDIR/hardening.conf" ;; esac
 # sorts after hardening.conf, whose empty Environment= would otherwise clear this floor
 printf '[Service]\nEnvironment="OLLAMA_GPU_OVERHEAD=%s"\n' "$OVERHEAD" > "$DROPDIR/vram-reserve.conf"
 # Without this CUDA falls back to Vulkan: DeviceAllow= resolves char-nvidia-uvm when the unit starts,
@@ -216,23 +225,21 @@ fi
 modelfile=$("$OLLAMA" show "$SRC" --modelfile 2>/dev/null || true)
 [[ $modelfile == *"sha256-$MODEL_SHA256"* ]] ||
     { warn "$SRC is not the pinned build; update MODEL_SHA256 if the change is intended"; exit 1; }
-# a re-run keeps the previously tuned model until the new one is baked
-previous=""
-if "$OLLAMA" list 2>/dev/null | grep -q "^$NAME:"; then
-    "$OLLAMA" cp "$NAME" "$NAME-previous" >/dev/null && previous="$NAME-previous"
-fi
-"$OLLAMA" cp "$SRC" "$NAME"
+# tuning loads an uncapped scratch copy, so an abort never leaves $NAME without its cap
+tuning=$NAME-tuning
+trap 'rm -rf "$tmp"; "$OLLAMA" rm "$tuning" >/dev/null 2>&1 || true' EXIT
+"$OLLAMA" cp "$SRC" "$tuning"
 
 # The baked GPU layer limit reserves desktop VRAM beyond OLLAMA_GPU_OVERHEAD alone.
 echo "  tuning num_gpu for >= ${TARGET} MiB free at ${CTX} context"
-blocks=$(curl -s -m 30 "$API/api/show" -d "{\"model\":\"$NAME\"}" |
-    jq -r '.model_info|to_entries[]|select(.key|endswith(".block_count")).value' | head -1)
+blocks=$(curl -s -m 30 "$API/api/show" -d "{\"model\":\"$tuning\"}" |
+    jq -r '.model_info|to_entries[]|select(.key|endswith(".block_count")).value' | head -1) || blocks=""
 { [ -n "$blocks" ] && [ "$blocks" -gt 0 ]; } 2>/dev/null || blocks=48
 best="" bestfree_ng="" bestfree_val=0
 for ng in "$blocks" $((blocks - 3)) $((blocks - 6)) $((blocks - 9)) $((blocks - 12)) $((blocks - 15)); do
     [ "$ng" -ge 1 ] || continue
-    free=$(load_free "$ng") || free=""
-    "$OLLAMA" stop "$NAME" >/dev/null 2>&1 || true
+    free=$(load_free "$ng" "$tuning") || free=""
+    "$OLLAMA" stop "$tuning" >/dev/null 2>&1 || true
     echo "  num_gpu=$ng -> ${free} MiB free"
     if [ "${free:-0}" -ge "$TARGET" ]; then best=$ng; break; fi
     if [ "${free:-0}" -gt "$bestfree_val" ]; then bestfree_ng=$ng; bestfree_val=$free; fi
@@ -242,19 +249,17 @@ if [ -z "$best" ] && [ "$bestfree_val" -ge "$PASS" ]; then
     warn "no layer count reaches ${TARGET} MiB free; using num_gpu=$best with ${bestfree_val} MiB"
 fi
 [ -n "$best" ] || {
-    if [ -n "$previous" ]; then
-        "$OLLAMA" cp "$previous" "$NAME" >/dev/null && "$OLLAMA" rm "$previous" >/dev/null 2>&1
+    if "$OLLAMA" list 2>/dev/null | grep -q "^$NAME:"; then
         warn "no layer count leaves ${PASS} MiB free; the previously tuned $NAME is kept unchanged"
     else
-        "$OLLAMA" rm "$NAME" >/dev/null 2>&1 || true
         warn "no layer count leaves ${PASS} MiB free; model tuning stopped"
     fi
     exit 1
 }
 echo "  baking num_gpu=$best, num_ctx=$CTX"
-printf 'FROM %s\nPARAMETER num_gpu %s\nPARAMETER num_ctx %s\n' "$NAME" "$best" "$CTX" > "$tmp/Modelfile"
+printf 'FROM %s\nPARAMETER num_gpu %s\nPARAMETER num_ctx %s\n' "$tuning" "$best" "$CTX" > "$tmp/Modelfile"
 "$OLLAMA" create "$NAME" -f "$tmp/Modelfile"
-[ -z "$previous" ] || "$OLLAMA" rm "$previous" >/dev/null 2>&1 || true
+"$OLLAMA" rm "$tuning" >/dev/null 2>&1 || true
 # only the tuned name stays listed, so a GUI cannot pick the source entry and load it uncapped
 "$OLLAMA" rm "$SRC" >/dev/null 2>&1 || true
 ok "$NAME tuned"

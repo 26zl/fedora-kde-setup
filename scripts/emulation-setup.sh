@@ -13,13 +13,15 @@ RED='\033[38;2;170;28;28m'
 RESET='\033[0m'
 if [ ! -t 1 ] || [ -n "${NO_COLOR-}" ]; then TEAL='' RED='' RESET=''; fi
 
-ok()      { echo -e "  ${TEAL}✓${RESET} $1"; }
-warn()    { echo -e "  ${RED}!${RESET} $1"; }
-section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; }
+# interactive runs also leave these lines in the journal: journalctl -t fedora-kde-setup
+journal() { [ ! -t 1 ] || logger -t fedora-kde-setup -- "${0##*/}: $*" 2>/dev/null || true; }
+ok()      { echo -e "  ${TEAL}✓${RESET} $1"; journal "ok: $1"; }
+warn()    { echo -e "  ${RED}!${RESET} $1"; journal "warning: $1"; }
+section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; journal "$1"; }
 
-DUCKSTATION_VERSION=v0.1-11894
-DUCKSTATION_REV=c66b2694da65cece8886ed3d4a069098831f8358
-DUCKSTATION_SHA256=c2fd26257ac5cfefe4f77b61b04b8fe299f9c4e0cf6b851fc5259c815979466a
+DUCKSTATION_VERSION=v0.1-12442
+DUCKSTATION_REV=dd4a0eb779296a525f8b10b6d9a45911ad6d088f
+DUCKSTATION_SHA256=4d5c3dcfd9937dc9e77b8fcd5f879b8ec0c69551d5ed13462592073608542fca
 DUCKSTATION_LICENSE_SHA256=38762e3777f4ec00a6f769062a7c3f704fb78ce08303ecff88558da4c49cf9ea
 rpm -q terra-release &>/dev/null || { warn "Terra repo missing — run scripts/fedora-setup.sh first"; exit 1; }
 

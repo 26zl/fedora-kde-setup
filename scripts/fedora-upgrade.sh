@@ -1,6 +1,6 @@
 #!/bin/bash
-# Upgrade to the next Fedora release (45 -> 46 when run on 45). Updates the current
-# release, checks the machine, takes a snapper snapshot of / and downloads the
+# Upgrade to the next Fedora release (45 -> 46 when run on 45). Checks the machine,
+# updates the current release, takes a snapper snapshot of / and downloads the
 # upgrade; it does not reboot. Start the upgrade with `sudo dnf system-upgrade reboot`
 # and run scripts/verify-setup.sh on the first boot of the new release.
 # Run as regular user — sudo is called where needed; --yes answers the --allowerasing
@@ -33,9 +33,11 @@ RED='\033[38;2;170;28;28m'
 RESET='\033[0m'
 if [ ! -t 1 ] || [ -n "${NO_COLOR-}" ]; then TEAL='' RED='' RESET=''; fi
 
-ok()      { echo -e "  ${TEAL}✓${RESET} $1"; }
-warn()    { echo -e "  ${RED}!${RESET} $1"; }
-section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; }
+# interactive runs also leave these lines in the journal: journalctl -t fedora-kde-setup
+journal() { [ ! -t 1 ] || logger -t fedora-kde-setup -- "${0##*/}: $*" 2>/dev/null || true; }
+ok()      { echo -e "  ${TEAL}✓${RESET} $1"; journal "ok: $1"; }
+warn()    { echo -e "  ${RED}!${RESET} $1"; journal "warning: $1"; }
+section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; journal "$1"; }
 
 current=$(rpm -E %fedora)
 target=$((current + 1))
@@ -49,15 +51,6 @@ case "$status" in
     404) warn "Fedora $target is not released yet"; exit 1 ;;
     *)   warn "cannot reach dl.fedoraproject.org (HTTP ${status:-none})"; exit 1 ;;
 esac
-
-section "Fedora $current up to date"
-sudo dnf upgrade --refresh -y
-newest=$(rpm -q kernel-core --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -V | tail -n 1)
-if [ "$newest" != "$(uname -r)" ]; then
-    warn "kernel $newest is installed but $(uname -r) is running: reboot and run this again"
-    exit 1
-fi
-ok "running the newest kernel ($newest)"
 
 section "Preflight"
 root_free=$(df --output=avail -BG / | tail -n 1 | tr -dc 0-9)
@@ -95,21 +88,35 @@ else
     warn "cannot read failed systemd units; compare their state manually after upgrading"
 fi
 
+section "Fedora $current up to date"
+sudo dnf upgrade --refresh -y
+newest=$(rpm -q kernel-core --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -V | tail -n 1)
+if [ "$newest" != "$(uname -r)" ]; then
+    warn "kernel $newest is installed but $(uname -r) is running: reboot and run this again"
+    exit 1
+fi
+ok "running the newest kernel ($newest)"
+
 section "Restore point"
-if snap=$(sudo snapper -c root create --description "before Fedora $target" --userdata important=yes \
-    --cleanup-algorithm number --print-number 2>/dev/null); then
+if ! sudo snapper list-configs 2>/dev/null | awk '{print $1}' | grep -qx root; then
+    warn "no snapper root config: no restore point"
+elif snap=$(sudo snapper -c root create --description "before Fedora $target" --userdata important=yes \
+    --cleanup-algorithm number --print-number); then
     ok "snapper root snapshot $snap; /boot is not in it, the Fedora $current kernel stays as a boot entry"
 else
-    warn "no snapper root config: no restore point"
+    warn "snapper has a root config but took no snapshot (see above); fix that before upgrading"
+    exit 1
 fi
 
 section "Download"
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT
-dnf_opts=(--releasever="$target")
+# a third-party repo without a build for the new release must not stop the download
+dnf_opts=(--releasever="$target" --setopt=skip_if_unavailable=True)
 resolve() {  # dnf options...; dnf's output lands in $log
+    # the log is parsed, so dnf must not translate its messages
     # shellcheck disable=SC2024  # the log is this user's own temp file
-    sudo dnf system-upgrade download "${dnf_opts[@]}" "$@" --assumeno >"$log" 2>&1 || true
+    LC_ALL=C sudo dnf system-upgrade download "${dnf_opts[@]}" "$@" --assumeno >"$log" 2>&1 || true
     ! grep -q 'Failed to resolve the transaction' "$log"
 }
 # Package names out of dnf's problem lines: the installed package it cannot upgrade, or the
@@ -131,9 +138,7 @@ if [ "$resolved" -eq 0 ] && grep -q 'optional_metadata_types=filelists' "$log"; 
     resolve && resolved=1
 fi
 if [ "$resolved" -eq 0 ]; then
-    # A broken N+1 build is excluded so that --allowerasing drops the installed copy instead of
-    # failing on the new one (RPM Fusion's 45-1 release packages); a package with no N+1 build
-    # is erased the same way (ES-DE on 45). dnf install brings both back once their repo is fixed.
+    # excluding an N+1 build with unmet requirements lets --allowerasing drop the installed copy instead
     for name in $(problem_packages broken); do
         warn "$name: its Fedora $target build cannot be installed; excluded, the installed copy is removed"
         extra+=(--exclude="$name")
