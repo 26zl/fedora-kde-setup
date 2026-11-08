@@ -130,7 +130,6 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   └── check-packages.sh       # CI: literal package names resolve in the scoped repos
 ├── setup.conf.example          # Per-machine overrides; copy to setup.conf
 ├── README.md                   # This guide
-├── CHANGELOG.md                # What changed, newest first
 ├── CONTRIBUTING.md             # Checks to run, conventions, repository settings
 ├── AGENTS.md                   # Boundaries for AI coding agents
 ├── SECURITY.md                 # How to report a vulnerability
