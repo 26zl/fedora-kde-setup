@@ -57,13 +57,21 @@ load_free() {
 }
 
 verify() {
-    local failed=0 free split baked
+    local failed=0 free split baked backend
     echo "  ollama: $("$OLLAMA" --version 2>&1 | awk '{print $NF}')"
     "$OLLAMA" list 2>/dev/null | grep -q "$NAME" || { warn "$NAME is not installed (run with sudo first)"; return 1; }
     if systemctl show ollama -p Environment 2>/dev/null | grep -q "OLLAMA_GPU_OVERHEAD=$OVERHEAD"; then
         ok "reserve floor: OLLAMA_GPU_OVERHEAD set"
     else
         warn "reserve floor: not set (run with sudo)"
+        failed=1
+    fi
+    backend=$(journalctl -u ollama -b -o cat 2>/dev/null | grep -o 'msg="inference compute".*' | tail -n 1 |
+        grep -o 'library=[A-Za-z0-9]*') || backend=""
+    if [ "$backend" = library=CUDA ]; then
+        ok "compute: CUDA"
+    else
+        warn "compute: ${backend:-no GPU found} (want library=CUDA; see nvidia-uvm.conf)"
         failed=1
     fi
     baked=$(get_baked_gpu) || baked=""
@@ -181,12 +189,22 @@ DeviceAllow=char-fb rw
 HARDEN
 # sorts after hardening.conf, whose empty Environment= would otherwise clear this floor
 printf '[Service]\nEnvironment="OLLAMA_GPU_OVERHEAD=%s"\n' "$OVERHEAD" > "$DROPDIR/vram-reserve.conf"
+# Without this CUDA falls back to Vulkan: DeviceAllow= resolves char-nvidia-uvm when the unit starts,
+# and NoNewPrivileges stops libcuda's setuid nvidia-modprobe from loading it and creating /dev/nvidia-uvm.
+cat > "$DROPDIR/nvidia-uvm.conf" <<'UVM'
+[Unit]
+Wants=modprobe@nvidia_uvm.service
+After=modprobe@nvidia_uvm.service
+
+[Service]
+ExecStartPre=-+/usr/bin/nvidia-modprobe -c0 -u
+UVM
 systemctl daemon-reload
 systemctl enable ollama
 systemctl restart ollama
 for _ in $(seq 30); do "$OLLAMA" list >/dev/null 2>&1 && break; sleep 1; done
 "$OLLAMA" list >/dev/null 2>&1 || { warn "ollama.service did not become ready"; exit 1; }
-ok "ollama.service running, hardening + VRAM reserve applied"
+ok "ollama.service running, hardening, VRAM reserve and nvidia-uvm applied"
 
 section "Model: $NAME"
 if pgrep -f '^ollama pull' >/dev/null; then

@@ -143,8 +143,21 @@ if [ "$drift" -eq 0 ]; then pass "every system/ file deployed and unchanged"; el
 rpmnew=$(find /etc \( -name '*.rpmnew' -o -name '*.rpmsave' \) 2>/dev/null | tr '\n' ' ')
 [ -z "$rpmnew" ] || note "package config updates waiting: $rpmnew (for files system/ replaces, re-run apply-system.sh instead)"
 
-if [ -f ~/ES-DE/custom_systems/es_systems.xml ] || compgen -G '/etc/yum.repos.d/cuda-fedora*.repo' >/dev/null; then
+ollama_on=""
+[ -n "$NVIDIA_BRANCH" ] && systemctl is-active -q ollama 2>/dev/null && ollama_on=1
+if [ -f ~/ES-DE/custom_systems/es_systems.xml ] || compgen -G '/etc/yum.repos.d/cuda-fedora*.repo' >/dev/null ||
+    [ -n "$ollama_on" ]; then
     section "Opt-in extras"
+fi
+if [ -n "$ollama_on" ]; then
+    backend=$(journalctl -u ollama -b -o cat 2>/dev/null | grep -o 'msg="inference compute".*' | tail -n 1 |
+        grep -o 'library=[A-Za-z0-9]*')
+    if [ "$backend" = library=CUDA ]; then
+        pass "ollama computes on CUDA"
+    else
+        lib=${backend#library=}
+        fail "ollama computes on ${lib:-no GPU}, not CUDA (sudo bash scripts/ollama-setup.sh adds nvidia-uvm.conf)"
+    fi
 fi
 if [ -f ~/ES-DE/custom_systems/es_systems.xml ]; then
     if rpm -q emulationstation-de >/dev/null 2>&1; then

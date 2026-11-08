@@ -91,7 +91,11 @@ case "$1" in
     *) exit 1 ;;
 esac
 STUB
-chmod +x "$stub/ollama"
+cat >"$stub/journalctl" <<'STUB'
+#!/bin/bash
+case "$*" in *"-u ollama"*) echo "level=INFO msg=\"inference compute\" id=0 library=${BACKEND:-CUDA} name=GPU0" ;; esac
+STUB
+chmod +x "$stub/ollama" "$stub/journalctl"
 cat >"$tmp/verify.sh" <<'TEST'
 #!/bin/bash
 set -euo pipefail
@@ -111,6 +115,9 @@ if PATH="$stub:$PATH" RESERVE=no bash "$tmp/verify.sh" >"$tmp/verify.out"; then
 fi
 if PATH="$stub:$PATH" CAP=no bash "$tmp/verify.sh" >"$tmp/verify.out"; then
     fail "Ollama accepted a model without its GPU layer limit"
+fi
+if PATH="$stub:$PATH" BACKEND=Vulkan bash "$tmp/verify.sh" >"$tmp/verify.out"; then
+    fail "Ollama accepted the Vulkan fallback"
 fi
 
 if [ "$EUID" -ne 0 ]; then
