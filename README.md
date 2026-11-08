@@ -1152,8 +1152,8 @@ pgrep conky && echo "Conky running"
 - **Terminal extras**: `fedora-setup.sh` installs lazygit to `/usr/local/bin`, ble.sh to `~/.local/share/blesh`, the JetBrains Mono Nerd Font to `~/.local/share/fonts/JetBrainsMono`, and the helper scripts to `~/scripts`; remove those, then delete the two blocks between the `# >>> fedora-kde-setup` and `# <<< fedora-kde-setup` markers from `~/.bashrc`, or restore `~/.bashrc.orig`.
 - **Ollama** (`scripts/ollama-setup.sh`): `sudo systemctl disable --now ollama`, then remove `/etc/systemd/system/ollama.service` and its `.d` drop-ins, `/usr/local/bin/ollama`, `/usr/local/lib/ollama`, `/var/lib/ollama`, the `ollama` user and group, and the GUI with `flatpak uninstall com.jeffser.Alpaca`.
 - **Strata** (`scripts/strata-setup.sh`): remove the checkout (`~/Prosjekter/Strata`), the model files (`/mnt/data/Strata-data`), the CUDA repo `/etc/yum.repos.d/cuda-fedora44.repo`, and `sudo dnf remove cuda-toolkit-13-4`.
-- **Windows VM** (`scripts/windows-vm-setup.sh`): `sudo virsh undefine win11 --nvram --tpm --storage vda` removes the VM with its disk, NVRAM and TPM state; delete the ISOs from `/var/lib/libvirt/images` yourself. The libvirt packages stay, since other VMs may use them.
 - **Emulation** (`scripts/emulation-setup.sh`): `flatpak uninstall` the Flatpak emulators, `sudo dnf remove emulationstation-de`, and remove `~/Applications/DuckStation-x64.AppImage` plus its license/source sidecars. Restore the numbered backups of `~/ES-DE/custom_systems/es_systems.xml` and `es_find_rules.xml` if present. ROMs, BIOS files and saves are left alone.
+- **Windows VM** (`scripts/windows-vm-setup.sh`): `sudo virsh undefine win11 --nvram --tpm --storage vda` removes the VM with its disk, NVRAM and TPM state; delete the ISOs from `/var/lib/libvirt/images` yourself. The libvirt packages stay, since other VMs may use them.
 
 ---
 
