@@ -24,7 +24,7 @@ section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; }
 STRATA_REV=7ddc17a38fe7f31637e895ecfba58c2cd43d65ec  # v0.2.3.1
 STRATA_DIR=${STRATA_DIR:-$HOME/Prosjekter/Strata}
 # not under /home: snapper would keep the model files in every snapshot
-STRATA_DATA=${STRATA_DATA:-/mnt/data/Strata-data}
+STRATA_DATA=${STRATA_DATA:-/mnt/data/IT/Strata-data}
 
 hw_has_gpu 10de || { warn "Strata's CUDA engine needs an NVIDIA GPU"; exit 1; }
 if [ -d "$STRATA_DIR/.git" ]; then
