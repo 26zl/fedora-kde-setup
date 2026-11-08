@@ -31,7 +31,7 @@ dnf -y -q makecache
 echo "==> Fedora $rel: resolving packages"
 missing=0
 # The scripts install these only after checking the repo has them, so a lagging repo is a warning.
-guarded=$(grep -ohP 'repoquery --available \K[a-z0-9][a-z0-9._+-]*' scripts/*.sh | sort -u)
+guarded=$(grep -ohP 'repoquery --available \K[a-z0-9][a-z0-9._+-]*' scripts/*.sh | sort -u) || guarded=""
 for p in $(sed ':a;/\\$/{N;s/\\\n//;ba}' scripts/*.sh | grep -oP 'dnf install -y \K.*' |
            tr ' ' '\n' | grep -E '^[a-z0-9][a-z0-9._+-]*$' | sort -u); do
     # -y: makecache does not always import Terra's key; unanswered, the prompt drops the repo
