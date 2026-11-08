@@ -123,7 +123,7 @@ problem_packages() {  # installed|broken
     esac | sed -E 's/\.[a-z0-9_]+$//; s/-[^-]+-[^-]+$//' | sort -u
 }
 echo "  resolving the Fedora $target transaction (fetches its metadata first)..."
-extra=()
+extra=() removed=()
 if ! resolve; then
     # A broken N+1 build is excluded so that --allowerasing drops the installed copy instead of
     # failing on the new one (RPM Fusion's 45-1 release packages); a package with no N+1 build
@@ -131,13 +131,20 @@ if ! resolve; then
     for name in $(problem_packages broken); do
         warn "$name: its Fedora $target build cannot be installed; excluded, the installed copy is removed"
         extra+=(--exclude="$name")
+        removed+=("$name")
     done
     for name in $(problem_packages installed); do
-        [[ " ${extra[*]} " == *" --exclude=$name "* ]] && continue
+        [[ " ${removed[*]} " == *" $name "* ]] && continue
         if sudo dnf -q repoquery --releasever="$target" --available "$name" 2>/dev/null | grep -q .; then
             warn "$name: cannot be upgraded as things stand; dnf's reasons follow if this stays unresolved"
         else
             warn "$name: no build for Fedora $target yet; --allowerasing removes it"
+            removed+=("$name")
+        fi
+    done
+    for name in "${removed[@]}"; do
+        if [[ $name == *-release ]]; then
+            warn "$name carries its repository's .repo files: that repository is off after the reboot until $name is back"
         fi
     done
     extra+=(--allowerasing)
@@ -158,5 +165,13 @@ echo "  1. sudo dnf system-upgrade reboot   runs the upgrade offline; with NVIDI
 echo "                                      boot rebuilds the module before the login screen"
 echo "  2. bash scripts/verify-setup.sh     on the first boot of Fedora $target"
 echo "  3. bash scripts/apply-system.sh     if verify-setup.sh reports drift or .rpmnew files"
-[ ${#extra[@]} -le 1 ] ||
-    echo "  4. sudo dnf install <name>          for each package removed above, once its repo has a working Fedora $target build"
+[ ${#removed[@]} -eq 0 ] || echo "  4. reinstall what the upgrade removed:"
+for name in "${removed[@]}"; do
+    case $name in
+        rpmfusion-free-release | rpmfusion-nonfree-release)
+            part=${name#rpmfusion-}
+            echo "     sudo dnf install https://download1.rpmfusion.org/${part%-release}/fedora/$name-$target.noarch.rpm" ;;
+        *-release) echo "     $name: from its project's install instructions for Fedora $target" ;;
+        *) echo "     sudo dnf install $name   once its repository has a Fedora $target build" ;;
+    esac
+done

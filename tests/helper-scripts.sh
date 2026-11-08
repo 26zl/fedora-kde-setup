@@ -293,4 +293,55 @@ fi
 [[ $output == *"/dev/sataA: another self-test is running; left unchanged"* ]] || fail "running SATA test was not preserved"
 ! grep -q 'smartctl -t short /dev/sataA' "$SAFE_LOG" || fail "a running SATA self-test was replaced"
 
+# The Fedora 44 -> 45 transaction of 2026-11-03: RPM Fusion's 45-1 release packages required a path
+# with a trailing slash, and ES-DE had no Fedora 45 build.
+if [ "$EUID" -ne 0 ]; then
+    upg="$tmp/upgrade"
+    mkdir -p "$upg/bin" "$upg/repo/scripts/lib" "$upg/hw"
+    cp "$repo/scripts/fedora-upgrade.sh" "$upg/repo/scripts/"
+    cp "$repo/scripts/lib/hw.sh" "$upg/repo/scripts/lib/"
+    cat >"$upg/problems.log" <<'LOG'
+Failed to resolve the transaction:
+Packages for argument 'admin-tools' installed, but not available.
+Problem 1: conflicting requests
+  - rpmfusion-nonfree-release-44-3.noarch does not belong to a distupgrade repository
+  - nothing provides /usr/share/dnf5/libdnf.conf.d/ needed by rpmfusion-nonfree-release-45-1.noarch from rpmfusion-nonfree
+Problem 2: conflicting requests
+  - rpmfusion-free-release-44-3.noarch does not belong to a distupgrade repository
+  - nothing provides /usr/share/dnf5/libdnf.conf.d/ needed by rpmfusion-free-release-45-1.noarch from rpmfusion-free
+Problem 3: problem with installed package emulationstation-de-3.5.0-1.fc44.x86_64
+  - installed package emulationstation-de-3.5.0-1.fc44.x86_64 requires libavutil.so.60()(64bit), but none of the providers can be installed
+LOG
+    cat >"$upg/bin/sudo" <<'STUB'
+#!/bin/bash
+printf 'sudo %s\n' "$*" >>"$SAFE_LOG"
+case "$*" in
+    snapper*) exit 1 ;;
+    *"system-upgrade download"*--assumeno*) [[ "$*" == *--allowerasing* ]] || cat "$UPGRADE_PROBLEMS" ;;
+    *repoquery*emulationstation-de*) ;;
+esac
+exit 0
+STUB
+    cat >"$upg/bin/rpm" <<'STUB'
+#!/bin/bash
+case "$1" in -E) echo 44 ;; *) echo fixture-kernel ;; esac
+STUB
+    printf '#!/bin/bash\necho 200\n' >"$upg/bin/curl"
+    printf '#!/bin/bash\necho fixture-kernel\n' >"$upg/bin/uname"
+    chmod +x "$upg/bin"/*
+    : >"$SAFE_LOG"
+    output=$(PATH="$upg/bin:$stub:$PATH" TMPDIR="$upg" HW_ROOT="$upg/hw" UPGRADE_PROBLEMS="$upg/problems.log" NO_COLOR=1 \
+        bash "$upg/repo/scripts/fedora-upgrade.sh" --yes 2>&1) || fail "upgrade stopped on the 44 -> 45 problems: $output"
+    download=$(grep '^sudo dnf system-upgrade download ' "$SAFE_LOG" | grep -v -- --assumeno) || fail "no final download"
+    [[ $download == *"--setopt=optional_metadata_types=comps,filelists,updateinfo"* ]] || fail "download without filelists"
+    [[ $download == *"--exclude=rpmfusion-free-release --exclude=rpmfusion-nonfree-release --allowerasing"* ]] ||
+        fail "broken release builds were not excluded: $download"
+    [[ $output == *"rpmfusion-free-release carries its repository's .repo files"* ]] ||
+        fail "no warning that RPM Fusion goes away"
+    [[ $output == *"https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-45.noarch.rpm"* ]] &&
+        [[ $output == *"https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-45.noarch.rpm"* ]] ||
+        fail "no RPM Fusion reinstall command"
+    [[ $output == *"sudo dnf install emulationstation-de"* ]] || fail "no reinstall hint for a package without a build"
+fi
+
 echo "All helper script failure-path tests passed."

@@ -52,6 +52,16 @@ args=$(grep -oP '^KERNEL_ARGS="\K[^"]+' scripts/apply-system.sh)
 for a in $args; do grep -qw -- "$a" /proc/cmdline || missing+=" $a"; done
 if [ -z "$missing" ]; then pass "kernel arguments: $args"; else fail "kernel arguments missing:$missing"; fi
 check "auditd running" systemctl is-active -q auditd
+# a release upgrade that has to drop a broken *-release package takes its repository with it
+stale=""
+for pkg in rpmfusion-free-release rpmfusion-nonfree-release; do
+    [ "$(rpm -q --qf '%{VERSION}' "$pkg" 2>/dev/null)" = "$(rpm -E %fedora)" ] || stale+=" $pkg"
+done
+if [ -z "$stale" ]; then
+    pass "RPM Fusion release packages for Fedora $(rpm -E %fedora)"
+else
+    fail "RPM Fusion release packages missing or for another release:$stale (README step 3 reinstalls them)"
+fi
 check "zram swap active" zram_active
 # bluetoothd uses the kernel crypto API (AF_ALG) that Fedora 45 starts restricting
 if systemctl is-enabled -q bluetooth 2>/dev/null; then check "bluetooth running" systemctl is-active -q bluetooth; fi
