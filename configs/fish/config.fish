@@ -33,3 +33,6 @@ zoxide init fish | source
 command -q mise; and mise activate fish | source
 
 starship init fish | source
+
+# machine-local additions survive a redeploy of this file; sourced last, so a PATH they set stays ahead of mise's
+test -r ~/.config/fish/local.fish; and source ~/.config/fish/local.fish

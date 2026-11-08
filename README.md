@@ -725,6 +725,8 @@ cp configs/fish/config.fish ~/.config/fish/config.fish
 cp configs/fish/functions/ya.fish ~/.config/fish/functions/ya.fish
 ```
 
+Put your own additions in `~/.config/fish/local.fish`, not in `config.fish`: running `fedora-setup.sh` again replaces `config.fish` (the old one is kept as a numbered backup), while `local.fish` stays. `config.fish` sources it last, after `mise activate`, so a version manager initialised there, such as `rbenv init - fish | source`, keeps its shims ahead of the PATH mise rebuilds.
+
 ### Shell Tools
 
 ```bash
