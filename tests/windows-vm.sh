@@ -35,6 +35,10 @@ cat >"$stub/setsid" <<'STUB'
 #!/bin/bash
 printf 'setsid %s\n' "$*" >>"$SAFE_LOG"
 STUB
+cat >"$stub/xdg-user-dir" <<'STUB'
+#!/bin/bash
+echo "${TEST_XDG_DOWNLOAD:-$HOME}"
+STUB
 cat >"$stub/id" <<'STUB'
 #!/bin/bash
 case "$1" in -nG) echo "${TEST_GROUPS:-users wheel}" ;; *) exec /usr/bin/id "$@" ;; esac
@@ -104,4 +108,39 @@ done
 grep -q '^sudo install -m 0644 /dev/stdin /var/lib/libvirt/images/Win11_Test.iso$' "$SAFE_LOG" ||
     fail "the ISO was not copied next to the disk through the user's own read"
 grep -q '^setsid -f virt-manager ' "$SAFE_LOG" || fail "the console was not opened"
+
+# --find-iso: the newest finished Windows 11 ISO in the download folder or VM_ISO_DIR, never the real ~/Downloads
+home="$tmp/home"
+mkdir -p "$home/Downloads" "$tmp/xdg" "$tmp/isos" "$tmp/no-isos"
+find_iso() { HOME="$home" VM_ISO_DIR="${ISO_DIR:-$tmp/no-isos}" run "$@"; }
+cdrom() { grep '^sudo virt-install ' "$SAFE_LOG" | grep -o -- '--cdrom [^ ]*'; }
+find_iso 1 "$pinned" --yes --find-iso
+[[ $output == *"no Windows 11 ISO in $home/Downloads"* && $output == *"software-download/windows11"* ]] ||
+    fail "--find-iso without an ISO gave no diagnostic: $output"
+no_sudo "--find-iso without an ISO"
+truncate -s 5G "$home/Downloads/Win11_25H2_English_x64.iso"
+: >"$home/Downloads/Win11_25H2_English_x64.iso.part"
+find_iso 1 "$pinned" --yes --find-iso
+[[ $output == *"not finished downloading"* ]] || fail "an ISO with a .part beside it was taken"
+no_sudo "an unfinished download"
+rm "$home/Downloads/Win11_25H2_English_x64.iso.part"
+touch -d '2 hours ago' "$home/Downloads/Win11_25H2_English_x64.iso"
+printf 'placeholder\n' >"$home/Downloads/Windows11_Client_x64_en-us_26300_9457.iso"
+find_iso 1 "$pinned" --yes --find-iso
+[[ $output == *"not finished downloading"* ]] || fail "a file too small for a Windows ISO was taken"
+no_sudo "a too-small ISO"
+truncate -s 5G "$home/Downloads/Windows11_Client_x64_en-us_26300_9457.iso"
+find_iso 0 "$pinned" --yes --find-iso
+[ "$(cdrom)" = "--cdrom /var/lib/libvirt/images/Windows11_Client_x64_en-us_26300_9457.iso" ] ||
+    fail "the newest ISO was not the one installed from: $(cdrom)"
+[[ $output == *"Windows ISO: $home/Downloads/Windows11_Client_x64_en-us_26300_9457.iso"* ]] || fail "the found ISO was not named"
+rm "$home/Downloads/"*.iso
+truncate -s 5G "$tmp/isos/Win11_24H2_English_x64.iso"
+ISO_DIR="$tmp/isos" find_iso 0 "$pinned" --yes --find-iso
+[ "$(cdrom)" = "--cdrom /var/lib/libvirt/images/Win11_24H2_English_x64.iso" ] || fail "an ISO in VM_ISO_DIR was not found"
+truncate -s 5G "$tmp/xdg/Win11_25H2_Norwegian_x64.iso"
+TEST_XDG_DOWNLOAD="$tmp/xdg" find_iso 0 "$pinned" --yes --find-iso
+[ "$(cdrom)" = "--cdrom /var/lib/libvirt/images/Win11_25H2_Norwegian_x64.iso" ] || fail "an ISO in the XDG download folder was not found"
+find_iso 2 "$pinned" --yes --find-iso "$tmp/Win11_Test.iso"
+no_sudo "a path together with --find-iso"
 echo "All Windows VM setup tests passed."

@@ -3,20 +3,23 @@
 # Without an ISO it sets up libvirt, the VM storage and the virtio drivers; with a Windows 11
 # ISO it also creates the VM and opens its console. Windows Setup itself stays interactive.
 # Run as a regular user; sudo is called where needed after one confirmation.
-#   bash scripts/windows-vm-setup.sh [--yes] [Win11.iso]
+#   bash scripts/windows-vm-setup.sh [--yes] [Win11.iso | --find-iso]
+# --find-iso takes the newest finished Windows 11 ISO in the download folder or VM_ISO_DIR.
 # VM_NAME (win11), VM_RAM_MIB, VM_CPUS and VM_DISK_GIB (128) override the defaults;
 # VM_LIBVIRT_GROUP=yes adds you to the libvirt group, which manages VMs as root without a password.
 
 usage() { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; }
-YES=0 ISO=""
+YES=0 ISO="" FIND_ISO=0
 for arg in "$@"; do
     case $arg in
         --yes) YES=1 ;;
+        --find-iso) FIND_ISO=1 ;;
         -h | --help) usage; exit 0 ;;
         -*) usage; exit 2 ;;
         *) [ -z "$ISO" ] || { usage; exit 2; }; ISO=$arg ;;
     esac
 done
+[ "$FIND_ISO" -eq 0 ] || [ -z "$ISO" ] || { usage; exit 2; }
 
 set -e
 [ "$EUID" -ne 0 ] || { echo "run as a normal user, not root" >&2; exit 1; }
@@ -48,6 +51,10 @@ VM_NAME=${VM_NAME:-win11}
 VM_RAM_MIB=${VM_RAM_MIB:-$((mem_mib >= 22528 ? 8192 : 4096))}
 VM_CPUS=${VM_CPUS:-$((threads / 2 > 8 ? 8 : (threads / 2 < 2 ? 2 : threads / 2)))}
 VM_DISK_GIB=${VM_DISK_GIB:-128}
+# setup.conf may set VM_ISO_DIR; the environment wins over it
+# shellcheck disable=SC1091
+conf() { if [ -f setup.conf ]; then (unset "$1"; . ./setup.conf >/dev/null; printf '%s' "${!1-}"); fi; }
+VM_ISO_DIR=${VM_ISO_DIR:-$(conf VM_ISO_DIR)}
 
 [ -e "${HW_ROOT-}/dev/kvm" ] || { warn "no /dev/kvm: turn on SVM (AMD) or VT-x (Intel) in the firmware setup"; exit 1; }
 [[ $VM_NAME =~ ^[A-Za-z0-9._-]+$ ]] || { warn "VM_NAME may hold only letters, digits, dot, dash and underscore"; exit 1; }
@@ -58,6 +65,25 @@ done
 if [ "$VM_RAM_MIB" -lt 4096 ] || [ "$VM_CPUS" -lt 2 ] || [ "$VM_DISK_GIB" -lt 64 ]; then
     warn "Windows 11 needs at least 4096 MiB of RAM, 2 CPUs and a 64 GiB disk"
     exit 1
+fi
+if [ "$FIND_ISO" -eq 1 ]; then
+    dirs=()
+    download=$(xdg-user-dir DOWNLOAD 2>/dev/null) || download=""
+    for dir in "$download" "$HOME/Downloads" "$VM_ISO_DIR"; do
+        [ -n "$dir" ] && [ "$dir" != "$HOME" ] && [ -d "$dir" ] && [[ " ${dirs[*]} " != *" $dir "* ]] && dirs+=("$dir")
+    done
+    [ "${#dirs[@]}" -eq 0 ] || ISO=$(find "${dirs[@]}" -maxdepth 1 -type f -iname 'win*11*.iso' -printf '%T@ %p\n' 2>/dev/null |
+        sort -n | tail -n 1 | cut -d' ' -f2-)
+    if [ -z "$ISO" ]; then
+        warn "no Windows 11 ISO in ${dirs[*]:-$HOME/Downloads}; get it from https://www.microsoft.com/software-download/windows11"
+        exit 1
+    fi
+    # a browser keeps an empty file under the final name until its .part or .crdownload file is complete
+    if [ -e "$ISO.part" ] || [ -e "$ISO.crdownload" ] || [ "$(stat -c %s "$ISO")" -lt 4000000000 ]; then
+        warn "$ISO is not finished downloading; run this again when it is"
+        exit 1
+    fi
+    ok "Windows ISO: $ISO"
 fi
 if [ -n "$ISO" ]; then
     [ -f "$ISO" ] && [ -r "$ISO" ] || { warn "cannot read $ISO"; exit 1; }
@@ -143,7 +169,7 @@ fi
 if [ -z "$ISO" ]; then
     section "Next"
     echo "  Download Windows 11 (Disk Image ISO) from microsoft.com/software-download/windows11, then:"
-    echo "  bash scripts/windows-vm-setup.sh <path to the ISO>"
+    echo "  bash scripts/windows-vm-setup.sh <path to the ISO>   (or --find-iso once it is in ~/Downloads)"
     exit 0
 fi
 

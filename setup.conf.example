@@ -24,6 +24,9 @@
 # installed system, apply-system.sh then takes the login screen wallpaper back out.
 #RICE=yes
 
+# Where scripts/windows-vm-setup.sh --find-iso also looks for a Windows 11 ISO, besides the download folder.
+#VM_ISO_DIR=/mnt/data/ISO
+
 # Where scripts/strata-setup.sh keeps the checkout and the ~85 GB of model files.
 # Keep the model files off /home: snapper would hold them in every snapshot.
 #STRATA_DIR=$HOME/Prosjekter/Strata
