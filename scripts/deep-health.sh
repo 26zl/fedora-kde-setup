@@ -209,7 +209,14 @@ if [ -n "$BOOTFS" ]; then
     if [ "$STATE" = "clean" ]; then ok "/boot clean"; else warn "/boot state: ${STATE:-unknown}"; fi
 fi
 for part in "${NTFS[@]}"; do
-    if ntfsfix -n "$part" >/dev/null 2>&1; then ok "$part clean"; else warn "$part needs chkdsk from Windows"; fi
+    # ntfsfix refuses a read-write mounted volume; ntfs3 mounts a dirty one read-only or not at all
+    mounted=$(findmnt -rno FSTYPE,OPTIONS --source "$part" 2>/dev/null | head -n 1)
+    case "$mounted" in
+        "") if ntfsfix -n "$part" >/dev/null 2>&1; then ok "$part clean"; else warn "$part needs chkdsk from Windows"; fi ;;
+        "ntfs3 rw,"*) ok "$part clean (mounted read-write by ntfs3)" ;;
+        *" ro,"* | *" ro") warn "$part is mounted read-only: run chkdsk /f on it from Windows" ;;
+        *) echo "  $part is mounted (${mounted%% *}); unmount it to check" ;;
+    esac
 done
 
 section "GPU"
