@@ -103,6 +103,7 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   ├── emulation-setup.sh      # ES-DE + standalone emulators (PS1/2/3, Wii)
 │   ├── strata-setup.sh         # Local LLM (Strata) on the NVIDIA card — opt-in, 85 GB+
 │   ├── ollama-setup.sh         # Local LLM (Ollama) + Alpaca chat GUI — opt-in, ~9 GB
+│   ├── windows-vm-setup.sh     # Windows 11 VM on KVM/libvirt (Secure Boot, TPM, virtio) — opt-in
 │   ├── setup-github.sh         # GitHub CLI login + git identity/defaults
 │   ├── rice-start.sh           # Restart Conky
 │   ├── sysinfo.sh              # System health overview in terminal
@@ -121,6 +122,7 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   ├── nvidia-vram.sh          # GPU capacity, disk storage and failure paths
 │   ├── emulation-setup.sh      # Pinned AppImage downloads and ES-DE selection
 │   ├── setup-restore.sh        # Recovery gates and boot/EFI archive round trips
+│   ├── windows-vm.sh           # Windows VM setup: input checks before sudo, the VM definition
 │   ├── fresh-install.sh        # CI: apply-system.sh and the README's copy steps on a fresh Fedora
 │   └── check-packages.sh       # CI: literal package names resolve in the scoped repos
 ├── setup.conf.example          # Per-machine overrides; copy to setup.conf
@@ -999,9 +1001,26 @@ sudo bash scripts/ollama-setup.sh
 
 ---
 
+## Windows VM
+
+A Windows 11 virtual machine on KVM/libvirt, for Windows-only programs without a reboot. Games whose anti-cheat runs in the kernel refuse virtual machines too, so those stay on the Windows install. Opt-in:
+
+```bash
+bash scripts/windows-vm-setup.sh                   # libvirt, VM storage and virtio drivers; no VM yet
+bash scripts/windows-vm-setup.sh <Win11 ISO>       # the same, then creates the VM and opens its console
+```
+
+- **The VM**: UEFI with Secure Boot and Microsoft's keys enrolled, an emulated TPM 2.0 (`swtpm`), the host's CPU model, a virtio disk and network card, a SPICE display, and the Hyper-V enlightenments `virt-install --osinfo win11` adds. It gets 8 GiB of RAM on a machine with 24 GB or more (4 GiB below), half the CPU threads up to 8, and a 128 GiB sparse qcow2 disk; `VM_NAME`, `VM_RAM_MIB`, `VM_CPUS` and `VM_DISK_GIB` override them.
+- **Storage**: on btrfs the script turns an empty `/var/lib/libvirt/images` into its own subvolume without copy-on-write, so snapper's root snapshots never hold on to a changing VM disk (see [Backup — Snapper](#13-backup--snapper-btrfs-snapshots)). The Windows ISO is copied there, because qemu cannot read files under `/home` and libvirt cannot label files on NTFS.
+- **Drivers**: the Windows installer has no virtio drivers, so the script downloads the [virtio-win](https://github.com/virtio-win/virtio-win-pkg-scripts) ISO, pinned by version and SHA-256, and attaches it as a second CD.
+- **Windows Setup stays manual**: press a key at "Press any key to boot from CD or DVD"; at "Where do you want to install Windows?" choose **Load driver** and browse the virtio-win CD for `viostor\w11\amd64` (disk), then `NetKVM\w11\amd64` (network). After the first login, run `virtio-win-guest-tools.exe` from the same CD for the display, clipboard and memory balloon drivers.
+- **The ISO** is "Download Windows 11 Disk Image (ISO)" at [microsoft.com/software-download/windows11](https://www.microsoft.com/software-download/windows11).
+
+---
+
 ## Scripts
 
-`--help` on the setup and maintenance scripts prints their header and exits without changing anything, and output is plain text when piped or with `NO_COLOR` set. `fedora-setup.sh` and `apply-system.sh` print what they will change and ask once, `fedora-upgrade.sh` asks before passing `--allowerasing` and `disk-cleanup.sh` before trimming snapshots; `--yes` answers those with yes, and without a terminal the first two refuse to run while the last two take the no. `ollama-setup.sh test` verifies an install, and `hwstat.sh` takes the reading to print. Any other argument prints the header and exits 2.
+`--help` on the setup and maintenance scripts prints their header and exits without changing anything, and output is plain text when piped or with `NO_COLOR` set. `fedora-setup.sh`, `apply-system.sh` and `windows-vm-setup.sh` print what they will change and ask once, `fedora-upgrade.sh` asks before passing `--allowerasing` and `disk-cleanup.sh` before trimming snapshots; `--yes` answers those with yes, and without a terminal the first three refuse to run while the last two take the no. `ollama-setup.sh test` verifies an install, and `hwstat.sh` takes the reading to print. Any other argument prints the header and exits 2.
 
 ### `scripts/fedora-setup.sh`
 
@@ -1030,6 +1049,10 @@ Local LLM setup — CUDA toolkit from NVIDIA's repo, Strata pinned to a release,
 ### `scripts/ollama-setup.sh`
 
 Local LLM via Ollama — the upstream CUDA build with a hardened unit, the uncensored Gemma model tuned to leave the desktop about 3 GB of VRAM, and Alpaca as the GUI. Opt-in; re-run to update Ollama and re-tune. See [Local LLM (Ollama)](#local-llm-ollama).
+
+### `scripts/windows-vm-setup.sh`
+
+Windows 11 VM on KVM/libvirt — packages, libvirt sockets and group, VM storage outside snapper's snapshots, the pinned virtio-win drivers, and with an ISO the VM itself. Opt-in. See [Windows VM](#windows-vm).
 
 ### `scripts/sysinfo.sh` — alias: `sysinfo`
 
@@ -1129,6 +1152,7 @@ pgrep conky && echo "Conky running"
 - **Terminal extras**: `fedora-setup.sh` installs lazygit to `/usr/local/bin`, ble.sh to `~/.local/share/blesh`, the JetBrains Mono Nerd Font to `~/.local/share/fonts/JetBrainsMono`, and the helper scripts to `~/scripts`; remove those, then delete the two blocks between the `# >>> fedora-kde-setup` and `# <<< fedora-kde-setup` markers from `~/.bashrc`, or restore `~/.bashrc.orig`.
 - **Ollama** (`scripts/ollama-setup.sh`): `sudo systemctl disable --now ollama`, then remove `/etc/systemd/system/ollama.service` and its `.d` drop-ins, `/usr/local/bin/ollama`, `/usr/local/lib/ollama`, `/var/lib/ollama`, the `ollama` user and group, and the GUI with `flatpak uninstall com.jeffser.Alpaca`.
 - **Strata** (`scripts/strata-setup.sh`): remove the checkout (`~/Prosjekter/Strata`), the model files (`/mnt/data/Strata-data`), the CUDA repo `/etc/yum.repos.d/cuda-fedora44.repo`, and `sudo dnf remove cuda-toolkit-13-4`.
+- **Windows VM** (`scripts/windows-vm-setup.sh`): `sudo virsh undefine win11 --nvram --tpm --storage vda` removes the VM with its disk, NVRAM and TPM state; delete the ISOs from `/var/lib/libvirt/images` yourself. The libvirt packages stay, since other VMs may use them.
 - **Emulation** (`scripts/emulation-setup.sh`): `flatpak uninstall` the Flatpak emulators, `sudo dnf remove emulationstation-de`, and remove `~/Applications/DuckStation-x64.AppImage` plus its license/source sidecars. Restore the numbered backups of `~/ES-DE/custom_systems/es_systems.xml` and `es_find_rules.xml` if present. ROMs, BIOS files and saves are left alone.
 
 ---
