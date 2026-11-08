@@ -197,6 +197,9 @@ setsid -f virt-manager --connect "$CONNECT" --show-domain-console "$VM_NAME" >/d
 
 section "Windows Setup (in the virt-manager window)"
 echo "  1. Press a key at \"Press any key to boot from CD or DVD\"; missed it: Send Key > Ctrl+Alt+Del"
-echo "  2. At \"Where do you want to install Windows?\" choose Load driver and browse the virtio-win CD:"
-printf '     %s\n' 'viostor\w11\amd64 for the disk, then NetKVM\w11\amd64 for the network'
-echo "  3. After the first login run virtio-win-guest-tools.exe from the same CD (display, clipboard)"
+echo "  2. At \"Where do you want to install Windows?\" choose Load driver, browse the virtio-win CD and pick"
+printf '     %s\n' 'viostor\w11\amd64 (the disk), then Load driver again for NetKVM\w11\amd64 (the network):'
+echo "     without the network driver, Windows' first-run setup cannot get online"
+echo "  3. Missed NetKVM? At the network screen press Shift+F10 and run, with the virtio-win CD's letter:"
+printf '     %s\n' 'pnputil /add-driver E:\NetKVM\w11\amd64\netkvm.inf /install'
+echo "  4. After the first login run virtio-win-guest-tools.exe from the same CD (display, clipboard)"

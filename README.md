@@ -18,6 +18,21 @@ home subvolumes outside the supported layout. On other layouts it asks whether t
 without that restore point; with `--yes` it stops. Other hardware paths have fixture coverage;
 the complete setup still needs validation on each target machine.
 
+## Requirements
+
+Check these before running anything, so no script stops halfway:
+
+| For | You need |
+| --- | --- |
+| Everything | Fedora 45 with KDE Plasma 6 on x86_64, in Plasma's default Wayland session: the KDE Edition or another Fedora 45 install with Plasma. Fedora Kinoite and the other atomic variants have no `dnf` and are not supported. A regular user in the `wheel` group (the scripts call `sudo` themselves and refuse to run as root) and an internet connection. |
+| `fedora-setup.sh` | A fully updated system after a reboot ([Quick Setup](#quick-setup-new-machine) step 1) and at least 20 GB free on `/`. For the pre-install restore point: a Btrfs root with `/home` on the same filesystem, Fedora's default layout. On another layout it asks whether to go on without one. |
+| An NVIDIA card with Secure Boot on | Being at the machine for the next boot: the akmods signing key is enrolled at the blue MOK Manager screen, with a one-time password you choose. A later BIOS update clears that enrollment; `scripts/mok-reenroll.sh` restores it. |
+| `fedora-upgrade.sh` | At least 10 GB free on `/` and 200 MB on `/boot`; the script checks both before it changes anything. |
+| `strata-setup.sh` | An NVIDIA card, Turing or newer (tested with 12 GB of VRAM). About 86 GB for the model files on a disk outside `/home`, 5 GB for the CUDA toolkit and 1 GB for the checkout. At least 30 GB of RAM: the Coder model holds about 20 GB while loaded, and from 40 GB of RAM the script picks the full model, which needs about 48 GB. |
+| `ollama-setup.sh` | An NVIDIA card and about 14 GB of disk: Ollama 2.5 GB, the model 8.7 GB, the Alpaca app 2.3 GB. With 12 GB of VRAM the model runs almost entirely on the GPU; a smaller card runs part of it on the CPU. |
+| `emulation-setup.sh` | Your own BIOS, firmware and game dumps: the script installs the emulators and nothing else. Optionally a second disk for the ROMs. |
+| `windows-vm-setup.sh` | Virtualization switched on in the firmware setup (AMD SVM or Intel VT-x), at least 16 GB of RAM (the VM gets 8 GiB from 24 GB, else 4 GiB), room on `/` for a VM disk that grows up to 128 GiB, a Windows 11 x64 ISO from Microsoft and a Windows license. |
+
 ## Hardware Support
 
 The scripts detect the hardware and adapt to it, so the same repo sets up a gaming desktop or a laptop, with an NVIDIA, AMD or Intel GPU:
@@ -1047,7 +1062,7 @@ bash scripts/windows-vm-setup.sh --find-iso        # the same with the newest fi
 - **Password prompts**: virt-manager asks for your password to manage the VM. `VM_LIBVIRT_GROUP=yes` adds you to the `libvirt` group instead, which polkit lets manage `qemu:///system` without a password; that is root-equivalent, so it stays opt-in.
 - **Storage**: on btrfs the script turns an empty `/var/lib/libvirt/images` into its own subvolume without copy-on-write, so snapper's root snapshots never hold on to a changing VM disk (see [Backup — Snapper](#13-backup--snapper-btrfs-snapshots)); `fedora-setup.sh`'s restore point leaves it out for the same reason. The Windows ISO is copied there, because qemu cannot read files under `/home` and libvirt cannot label files on NTFS.
 - **Drivers**: the Windows installer has no virtio drivers, so the script downloads the [virtio-win](https://github.com/virtio-win/virtio-win-pkg-scripts) ISO, pinned by version and SHA-256, and attaches it as a second CD.
-- **Windows Setup stays manual**: press a key at "Press any key to boot from CD or DVD"; at "Where do you want to install Windows?" choose **Load driver** and browse the virtio-win CD for `viostor\w11\amd64` (disk), then `NetKVM\w11\amd64` (network). After the first login, run `virtio-win-guest-tools.exe` from the same CD for the display, clipboard and memory balloon drivers.
+- **Windows Setup stays manual**: press a key at "Press any key to boot from CD or DVD"; at "Where do you want to install Windows?" choose **Load driver** and browse the virtio-win CD for `viostor\w11\amd64` (disk), then choose **Load driver** again for `NetKVM\w11\amd64` (network): without the network driver, Windows' first-run setup cannot get online. Missed it: at the network screen press Shift+F10 and run `pnputil /add-driver E:\NetKVM\w11\amd64\netkvm.inf /install`, where `E:` is the virtio-win CD (`dir E:\` lists `NetKVM`). After the first login, run `virtio-win-guest-tools.exe` from the same CD for the display, clipboard and memory balloon drivers.
 - **The ISO** is "Download Windows 11 Disk Image (ISO)" at [microsoft.com/software-download/windows11](https://www.microsoft.com/software-download/windows11).
 
 ---
