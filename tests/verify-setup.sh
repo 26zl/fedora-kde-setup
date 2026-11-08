@@ -111,4 +111,17 @@ expect '→ NVIDIA saves video memory to /var/tmp from the next boot'
 NVIDIA_MODULE=missing OLLAMA_ACTIVE=no run_nvidia
 expect '→ no NVIDIA module for kernel 9.9.9-test yet'
 expect '✗ ollama is enabled but not running'
+
+# STRATA_REV=latest: the verifier says when Strata has a newer release than the checkout
+vgit() { git -c user.name=fixture -c user.email=fixture@invalid -c commit.gpgsign=false -c tag.gpgsign=false "$@"; }
+git init -q -b main "$tmp/strata-origin"
+vgit -C "$tmp/strata-origin" commit -q --allow-empty -m one && vgit -C "$tmp/strata-origin" tag v0.1.0
+vgit -C "$tmp/strata-origin" commit -q --allow-empty -m two && vgit -C "$tmp/strata-origin" tag v0.2.0
+git clone -q "$tmp/strata-origin" "$tmp/strata" && git -C "$tmp/strata" reset -q --hard v0.1.0
+printf 'STRATA_REV=latest\nSTRATA_DIR=%s\n' "$tmp/strata" >"$tmp/repo/setup.conf"
+run_probe available
+expect '→ Strata v0.2.0 is out (installed: v0.1.0)'
+git -C "$tmp/strata" reset -q --hard v0.2.0
+run_probe available
+expect '✓ Strata runs its newest release, v0.2.0'
 echo 'All setup verification tests passed.'

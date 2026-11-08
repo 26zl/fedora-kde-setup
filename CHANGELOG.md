@@ -5,6 +5,8 @@ pull request with the details.
 
 ## Unreleased: Fedora 45
 
+- Strata v0.2.12. `STRATA_REV=latest` in `setup.conf` follows its newest release; a re-run fast-forwards the
+  checkout and rebuilds the engine without sudo, and `verify-setup.sh` says when a newer release is out.
 - Move to Fedora 45, exclude broken upgrade builds and check that every fstab entry is mounted (#39).
 - Add an opt-in Windows 11 VM on KVM/libvirt; the root-equivalent `libvirt` group is opt-in (#40).
 - NVIDIA suspend: the capacity check counts free RAM for the current driver's in-memory store, and 580xx saves

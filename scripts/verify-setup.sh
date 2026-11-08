@@ -229,6 +229,20 @@ for repofile in /etc/yum.repos.d/cuda-fedora*.repo; do
         fi
     fi
 done
+# STRATA_REV=latest in setup.conf: Strata should run its newest release
+strata_dir=${STRATA_DIR:-$HOME/Prosjekter/Strata}
+if [ "${STRATA_REV-}" = latest ] && [ -d "$strata_dir/.git" ]; then
+    installed=$(git -C "$strata_dir" describe --tags --abbrev=0 2>/dev/null) || installed=""
+    newest=$(timeout 20 git -C "$strata_dir" ls-remote --tags --refs origin 2>/dev/null | sed -n 's#.*refs/tags/##p' |
+        grep -E '^v[0-9]+(\.[0-9]+)+$' | sort -V | tail -n 1) || newest=""
+    if [ -z "$newest" ]; then
+        note "cannot reach Strata's repository to look for a newer release"
+    elif [ "$(printf '%s\n' "$newest" "${installed:-v0}" | sort -V | tail -n 1)" = "${installed:-v0}" ]; then
+        pass "Strata runs its newest release, $installed"
+    else
+        note "Strata $newest is out (installed: ${installed:-unknown}): bash scripts/strata-setup.sh updates it"
+    fi
+fi
 
 echo
 if [ "$fails" -eq 0 ]; then

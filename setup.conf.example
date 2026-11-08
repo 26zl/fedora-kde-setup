@@ -28,3 +28,5 @@
 # Keep the model files off /home: snapper would hold them in every snapshot.
 #STRATA_DIR=$HOME/Prosjekter/Strata
 #STRATA_DATA=/mnt/data/Strata-data
+# The Strata commit to run; latest follows its newest release, which this repo has not tested.
+#STRATA_REV=latest
