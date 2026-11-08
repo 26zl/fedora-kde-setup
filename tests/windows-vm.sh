@@ -102,7 +102,7 @@ run 0 "$pinned" --yes "$tmp/Win11_Test.iso"
 install=$(grep '^sudo virt-install ' "$SAFE_LOG") || fail "virt-install not called"
 for want in '--osinfo win11' 'firmware.feature0.name=secure-boot' 'firmware.feature1.name=enrolled-keys' \
     'backend.type=emulator,backend.version=2.0' 'bus=virtio' "--cdrom /var/lib/libvirt/images/Win11_Test.iso" \
-    'virtio-win-' 'model=virtio'; do
+    'virtio-win-' 'model=virtio' 'model.type=qxl,model.vgamem=65536' 'name=org.qemu.guest_agent.0'; do
     [[ $install == *"$want"* ]] || fail "VM definition lacks $want"
 done
 grep -q '^sudo install -m 0644 /dev/stdin /var/lib/libvirt/images/Win11_Test.iso$' "$SAFE_LOG" ||
