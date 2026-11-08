@@ -10,7 +10,7 @@ mkdir -p "$stub" "$fixture"/{boot/efi/EFI/test,home/tester/.config,etc,usr,var,p
 printf 'kernel before setup\n' >"$fixture/boot/vmlinuz-test"
 printf 'EFI before setup\n' >"$fixture/boot/efi/EFI/test/loader.efi"
 printf 'KDE before setup\n' >"$fixture/home/tester/.config/kwinrc"
-printf 'Fedora release 44\n' >"$fixture/etc/fedora-release"
+printf 'Fedora release 45\n' >"$fixture/etc/fedora-release"
 printf 'vendor_id: GenuineIntel\n' >"$fixture/proc/cpuinfo"
 export RESTORE_FIXTURE="$fixture" RESTORE_LOG="$scratch/commands"
 export REAL_TAR
@@ -74,7 +74,7 @@ case "$*" in
 esac
 exec "$REAL_TAR" "$@"
 STUB
-printf '#!/bin/bash\necho 44\n' >"$stub/rpm"
+printf '#!/bin/bash\necho 45\n' >"$stub/rpm"
 printf '#!/bin/bash\necho x86_64\n' >"$stub/uname"
 printf '#!/bin/bash\nexit 0\n' >"$stub/kwriteconfig6"
 chmod +x "$stub"/*
