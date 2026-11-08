@@ -183,7 +183,7 @@ rpmnew=$(find /etc \( -name '*.rpmnew' -o -name '*.rpmsave' \) 2>/dev/null | tr 
 
 ollama_on=""
 [ -n "$NVIDIA_BRANCH" ] && systemctl is-enabled -q ollama 2>/dev/null && ollama_on=1
-if [ -f ~/ES-DE/custom_systems/es_systems.xml ] || compgen -G '/etc/yum.repos.d/cuda-fedora*.repo' >/dev/null ||
+if [ -d ~/ES-DE/custom_systems ] || compgen -G '/etc/yum.repos.d/cuda-fedora*.repo' >/dev/null ||
     [ -n "$ollama_on" ]; then
     section "Opt-in extras"
 fi
@@ -199,14 +199,11 @@ elif [ -n "$ollama_on" ]; then
         fail "ollama computes on ${lib:-no GPU}, not CUDA (sudo bash scripts/ollama-setup.sh adds nvidia-uvm.conf)"
     fi
 fi
-if [ -f ~/ES-DE/custom_systems/es_systems.xml ]; then
-    if rpm -q emulationstation-de >/dev/null 2>&1; then
-        pass "ES-DE installed"
-    # as a user, dnf otherwise waits unseen on a prompt to import a repository's signing key
-    elif dnf -q --assumeno repoquery --available emulationstation-de 2>/dev/null </dev/null | grep -q .; then
-        note "ES-DE missing but Terra has it: bash scripts/emulation-setup.sh"
+if [ -d ~/ES-DE/custom_systems ]; then
+    if [ -x ~/Applications/ES-DE_x64.AppImage ]; then
+        pass "ES-DE AppImage installed"
     else
-        note "ES-DE missing; Terra has no build for Fedora $(rpm -E %fedora) yet (AppImage from es-de.org meanwhile)"
+        fail "emulation is set up, but ~/Applications/ES-DE_x64.AppImage is missing (bash scripts/emulation-setup.sh)"
     fi
 fi
 for repofile in /etc/yum.repos.d/cuda-fedora*.repo; do

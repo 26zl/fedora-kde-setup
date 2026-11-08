@@ -156,9 +156,9 @@ rpm -q terra-release >/dev/null 2>&1 || sudo dnf install -y \
     --repofrompath "terra,https://repos.fyralabs.com/terra$(rpm -E %fedora)" \
     --setopt="terra.gpgkey=https://repos.fyralabs.com/terra$(rpm -E %fedora)/key.asc" \
     terra-release
-# Terra also ships steam, scx-scheds, lact and more; take only starship and ES-DE from it
-sudo dnf config-manager setopt 'terra.includepkgs=terra-release,terra-gpg-keys,starship,emulationstation-de*'
-ok "COPR (scoped): scx-scheds, yazi, mise; Terra: starship, ES-DE"
+# Terra also ships steam, scx-scheds, lact and more; take only starship from it
+sudo dnf config-manager setopt 'terra.includepkgs=terra-release,terra-gpg-keys,starship'
+ok "COPR (scoped): scx-scheds, yazi, mise; Terra: starship"
 
 section "GPU drivers"
 case "$NVIDIA_BRANCH" in
@@ -501,7 +501,7 @@ fi
 next "Check the result: bash scripts/verify-setup.sh"
 echo ""
 [ "$RICE" = yes ] && info "Conky runs as a systemd user service (systemctl --user status conky)"
-info "For retro emulation (ES-DE + PS1/PS2/PS3/Wii): bash scripts/emulation-setup.sh"
+info "For retro emulation (ES-DE + PS1/PS2/PS3, GameCube/Wii): bash scripts/emulation-setup.sh"
 info "For a local LLM (Strata, ~85 GB download): bash scripts/strata-setup.sh"
 info "For a local LLM via Ollama + Alpaca GUI (~9 GB download): sudo bash scripts/ollama-setup.sh"
 info "For a Windows 11 VM (KVM/libvirt): bash scripts/windows-vm-setup.sh [Win11 ISO]"

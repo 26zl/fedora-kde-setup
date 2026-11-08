@@ -81,18 +81,19 @@ export VERIFY_PORTS=8080/tcp
 run_probe available
 expect '→ firewall (public): services=dhcpv6-client; ports=8080/tcp'
 [[ $output != *'✓ firewall'* ]] || { echo 'FAIL: explicit firewall ports were ignored' >&2; exit 1; }
-# a user-run dnf query must not wait on a key import prompt
-mkdir -p "$tmp/home/ES-DE/custom_systems" "$tmp/no-esde"
-cat >"$tmp/no-esde/rpm" <<'STUB'
-#!/bin/bash
-case "$1" in -E) echo 45 ;; *) exit 1 ;; esac
-STUB
-chmod +x "$tmp/no-esde/rpm"
-: >"$tmp/home/ES-DE/custom_systems/es_systems.xml"
+# emulation set up: the ES-DE AppImage must be there; any user-run dnf query must not wait on a key import prompt
+mkdir -p "$tmp/home/ES-DE/custom_systems" "$tmp/home/Applications"
 : >"$tmp/dnf.log"
-HOME="$tmp/home" VERIFY_DNF_LOG="$tmp/dnf.log" PATH="$tmp/no-esde:$tmp/bin:$PATH" HW_ROOT="$tmp/hardware" FORM_FACTOR=laptop \
-    NVIDIA_DRIVER=none NO_COLOR=1 VERIFY_PROBES=available bash "$tmp/repo/scripts/verify-setup.sh" >/dev/null 2>&1 || true
-grep -q 'repoquery' "$tmp/dnf.log" || { echo 'FAIL: the ES-DE query did not run' >&2; exit 1; }
+run_home() {
+    output=$(HOME="$tmp/home" VERIFY_DNF_LOG="$tmp/dnf.log" PATH="$tmp/bin:$PATH" HW_ROOT="$tmp/hardware" FORM_FACTOR=laptop \
+        NVIDIA_DRIVER=none NO_COLOR=1 VERIFY_PROBES=available bash "$tmp/repo/scripts/verify-setup.sh" 2>/dev/null) || true
+}
+run_home
+expect '✗ emulation is set up, but ~/Applications/ES-DE_x64.AppImage is missing'
+printf '#!/bin/sh\nexit 0\n' >"$tmp/home/Applications/ES-DE_x64.AppImage"
+chmod +x "$tmp/home/Applications/ES-DE_x64.AppImage"
+run_home
+expect '✓ ES-DE AppImage installed'
 ! grep -v -- '--assumeno' "$tmp/dnf.log" | grep -q . || { echo 'FAIL: a dnf query can wait on a prompt' >&2; exit 1; }
 
 # the next kernel must have every filesystem driver /etc/fstab names, noauto entries included

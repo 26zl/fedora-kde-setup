@@ -17,6 +17,8 @@ cat >"$tmp/app.fixture" <<'APP'
 echo unexpected >>"$EMULATION_EXECUTED"
 exit 99
 APP
+cp "$tmp/app.fixture" "$tmp/esde.fixture"
+printf '# ES-DE stand-in\n' >>"$tmp/esde.fixture"
 printf 'Synthetic upstream license fixture.\n' >"$tmp/license.fixture"
 printf 'Corrupt download.\n' >"$tmp/corrupt.fixture"
 # Keep real checksum validation when substituting synthetic downloads in the copied script.
@@ -29,7 +31,8 @@ import sys
 root = Path(sys.argv[1])
 path = root / "repo/scripts/emulation-setup.sh"
 script = path.read_text()
-for key, name in [("DUCKSTATION_SHA256", "app.fixture"), ("DUCKSTATION_LICENSE_SHA256", "license.fixture")]:
+for key, name in [("DUCKSTATION_SHA256", "app.fixture"), ("DUCKSTATION_LICENSE_SHA256", "license.fixture"),
+                  ("ES_DE_SHA256", "esde.fixture")]:
     digest = hashlib.sha256((root / name).read_bytes()).hexdigest()
     script, count = re.subn(rf"^{key}=[0-9a-f]{{64}}$", f"{key}={digest}", script, flags=re.M)
     assert count == 1, f"missing {key} pin"
@@ -39,14 +42,9 @@ cat >"$stub/uname" <<'STUB'
 #!/bin/sh
 echo "${EMULATION_ARCH:-x86_64}"
 STUB
-cat >"$stub/rpm" <<'STUB'
-#!/bin/sh
-[ "${EMULATION_TERRA:-yes}" = yes ] || exit 1
-case "$*" in *%fedora*) echo 44 ;; esac
-STUB
 cat >"$stub/dnf" <<'STUB'
 #!/bin/sh
-echo emulationstation-de
+printf 'dnf %s\n' "$*" >>"$EMULATION_LOG"
 STUB
 cat >"$stub/sudo" <<'STUB'
 #!/bin/sh
@@ -72,6 +70,7 @@ done
 case $url in
     */DuckStation-x64.AppImage) source_file=app.fixture; corrupt=bad-app ;;
     */LICENSE) source_file=license.fixture; corrupt=bad-license ;;
+    */package_files/*/download) source_file=esde.fixture; corrupt=bad-esde ;;
     *) exit 3 ;;
 esac
 [ "${EMULATION_DOWNLOAD:-good}" != "$corrupt" ] || source_file=corrupt.fixture
@@ -82,13 +81,11 @@ chmod +x "$stub"/*
 fail() { echo "FAIL: $*" >&2; exit 1; }
 run_setup() { env HOME="$test_home" PATH="$stub:$PATH" NO_COLOR=1 bash "$tmp/repo/scripts/emulation-setup.sh"; }
 app="$test_home/Applications/DuckStation-x64.AppImage"
+esde="$test_home/Applications/ES-DE_x64.AppImage"
 printf 'Existing AppImage.\n' >"$app"
 cp "$app" "$tmp/existing-app"
-if EMULATION_TERRA=no run_setup >"$tmp/output" 2>&1; then
-    fail "missing Terra prerequisite was accepted"
-fi
-[ ! -s "$EMULATION_LOG" ] || fail "missing Terra reached downloads or package changes"
-cmp -s "$tmp/existing-app" "$app" || fail "missing Terra replaced the existing AppImage"
+printf 'Existing ES-DE.\n' >"$esde"
+cp "$esde" "$tmp/existing-esde"
 for mode in bad-download bad-app bad-license; do
     : >"$EMULATION_LOG"
     if EMULATION_DOWNLOAD=$mode run_setup >"$tmp/output" 2>&1; then
@@ -99,6 +96,15 @@ for mode in bad-download bad-app bad-license; do
     [ ! -e "$test_home/Applications/DuckStation-LICENSE.txt" ] || fail "$mode installed unverified notices"
     [ -z "$(find "$test_home/Applications" -name '.duckstation.*' -print -quit)" ] || fail "$mode leaked temporary files"
 done
+# a corrupt ES-DE download leaves the installed one, and nothing past it runs
+: >"$EMULATION_LOG"
+if EMULATION_DOWNLOAD=bad-esde run_setup >"$tmp/output" 2>&1; then
+    fail "a corrupt ES-DE AppImage passed checksum validation"
+fi
+cmp -s "$tmp/existing-esde" "$esde" || fail "a corrupt ES-DE download replaced the installed one"
+! grep -qE '^flatpak install' "$EMULATION_LOG" || fail "a corrupt ES-DE download went on to the emulators"
+[ ! -e "$test_home/.local/share/applications/es-de.desktop" ] || fail "a corrupt ES-DE download got a menu entry"
+[ -z "$(find "$test_home/Applications" -name '.es-de.*' -print -quit)" ] || fail "bad-esde leaked temporary files"
 
 mkdir -p "$test_home/.var/app/org.duckstation.DuckStation/config/duckstation/memcards" "$test_home/ES-DE/custom_systems"
 printf 'Synthetic memory card.\n' >"$tmp/card.fixture"
@@ -107,6 +113,13 @@ printf '<custom-system-fixture/>\n' >"$test_home/ES-DE/custom_systems/es_systems
 : >"$EMULATION_LOG"
 run_setup >"$tmp/output"
 cmp -s "$tmp/app.fixture" "$app" || fail "verified AppImage was not installed unchanged"
+cmp -s "$tmp/esde.fixture" "$esde" || fail "the verified ES-DE AppImage was not installed unchanged"
+[ -x "$esde" ] || fail "the installed ES-DE AppImage is not executable"
+entry="$test_home/.local/share/applications/es-de.desktop"
+grep -qxF "Exec=\"$esde\"" "$entry" || fail "the ES-DE menu entry does not start the installed AppImage"
+grep -qx 'Categories=Game;Emulator;' "$entry" || fail "the ES-DE menu entry is not under Games"
+grep -q 'curl .*/package_files/[0-9]*/download' "$EMULATION_LOG" || fail "ES-DE was not fetched from its pinned package file"
+! grep -qE '^(sudo|dnf) ' "$EMULATION_LOG" || fail "emulation setup ran dnf or sudo; ES-DE no longer comes from a package"
 [ -x "$app" ] || fail "installed AppImage is not executable"
 cmp -s "$tmp/license.fixture" "$test_home/Applications/DuckStation-LICENSE.txt" || fail "license notice was not preserved"
 grep -q 'Attribution-NonCommercial-NoDerivatives 4.0' "$test_home/Applications/DuckStation-SOURCE.txt" || fail "missing separate upstream license notice"
@@ -128,6 +141,11 @@ psx = next(system for system in systems if system.findtext("name") == "psx")
 command = psx.find("command")
 assert command.text == "%EMULATOR_DUCKSTATION% -batch %ROM%"
 assert command.get("label") == "DuckStation (Standalone)"
+for name in ("gc", "wii"):
+    system = next(system for system in systems if system.findtext("name") == name)
+    default = system.find("command")
+    assert default.get("label") == "Dolphin (Standalone)", name
+    assert default.text == "%INJECT%=%BASENAME%.esprefix %EMULATOR_DOLPHIN% -b -e %ROM%", name
 rules = ET.parse(sys.argv[2]).getroot()
 duckstation = next(emulator for emulator in rules if emulator.get("name") == "DUCKSTATION")
 entries = [entry.text for rule in duckstation if rule.get("type") == "staticpath" for entry in rule]

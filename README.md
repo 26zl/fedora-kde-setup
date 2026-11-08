@@ -101,7 +101,7 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   ├── lib/restore.sh          # Pre-install root/home snapshots and verified boot/EFI archives
 │   ├── fedora-setup.sh         # Automated post-upgrade setup (run after the initial system upgrade + reboot)
 │   ├── apply-system.sh         # Deploy system/ files to their system paths
-│   ├── emulation-setup.sh      # ES-DE + standalone emulators (PS1/2/3, Wii)
+│   ├── emulation-setup.sh      # ES-DE AppImage + standalone emulators (PS1/2/3, GameCube/Wii)
 │   ├── strata-setup.sh         # Local LLM (Strata) on the NVIDIA card — opt-in, 85 GB+
 │   ├── ollama-setup.sh         # Local LLM (Ollama) + Alpaca chat GUI — opt-in, ~9 GB
 │   ├── windows-vm-setup.sh     # Windows 11 VM on KVM/libvirt (Secure Boot, TPM, virtio) — opt-in
@@ -690,12 +690,12 @@ In KDE: **System Settings → Fonts → Fixed width** → `JetBrainsMono Nerd Fo
 
 ### Starship Prompt
 
-Packaged in the Terra repo, which `fedora-setup.sh` adds and restricts with `includepkgs` (see Emulation):
+Packaged in the Terra repo, which `fedora-setup.sh` adds and restricts with `includepkgs` to starship:
 
 ```bash
 sudo dnf install -y --repofrompath "terra,https://repos.fyralabs.com/terra$(rpm -E %fedora)" \
   --setopt="terra.gpgkey=https://repos.fyralabs.com/terra$(rpm -E %fedora)/key.asc" terra-release
-sudo dnf config-manager setopt 'terra.includepkgs=terra-release,terra-gpg-keys,starship,emulationstation-de*'
+sudo dnf config-manager setopt 'terra.includepkgs=terra-release,terra-gpg-keys,starship'
 sudo dnf install -y starship
 cp configs/starship/starship.toml ~/.config/starship.toml
 ```
@@ -955,20 +955,20 @@ bash scripts/emulation-setup.sh
 | PS2 | PCSX2 | Flatpak |
 | PS3 | RPCS3 | Flatpak |
 | SNES / N64 | RetroArch (snes9x / Mupen64Plus-Next cores) | Flatpak |
-| Wii | Dolphin | Flatpak |
-| Frontend | ES-DE (EmulationStation Desktop Edition) | Terra repo |
+| GameCube / Wii | Dolphin | Flatpak |
+| Frontend | ES-DE (EmulationStation Desktop Edition) | Official AppImage, pinned version and SHA-256 |
 
-`fedora-setup.sh` adds Terra and limits it with `includepkgs` to `terra-release`, `terra-gpg-keys`, `starship` and `emulationstation-de`; unrestricted, its steam, scx-scheds and lact builds would shadow the RPM Fusion and COPR ones. `emulation-setup.sh` stops if Terra is missing. Terra builds ES-DE for a new Fedora release some time after it ships; until then the script skips ES-DE with a warning and installs the emulators, and the AppImage from [es-de.org](https://es-de.org/) works in the meantime.
+ES-DE comes from [es-de.org](https://es-de.org/)'s own Linux build, an AppImage: `emulation-setup.sh` installs ES-DE 3.5.0 to `~/Applications/ES-DE_x64.AppImage` once its SHA-256 matches the pin, and adds it to the menu under Games. The Terra RPM it replaces arrived weeks after each new Fedora release, and Fedora 45 had none. ES-DE's own updater can move the AppImage to a newer release; running the script again puts the pinned one back.
 
 ### Default emulators (standalone, not libretro)
 
-ES-DE defaults each system to a libretro core, but only the standalone emulators are installed — launching a game otherwise errors with `couldn't find emulator core file <x>_libretro.so`. `configs/es-de/es_systems.xml` (deployed to `~/ES-DE/custom_systems/`) overrides the default to the standalone emulator per system (psx → DuckStation, ps2 → PCSX2, ps3 → RPCS3, wii → Dolphin). A custom `es_find_rules.xml` resolves `%EMULATOR_DUCKSTATION%` to `~/Applications/DuckStation-x64.AppImage` alone, so an old Flatpak on the PATH cannot take precedence. Existing custom XML is kept as a numbered backup.
+ES-DE defaults each system to a libretro core, but only the standalone emulators are installed — launching a game otherwise errors with `couldn't find emulator core file <x>_libretro.so`. `configs/es-de/es_systems.xml` (deployed to `~/ES-DE/custom_systems/`) overrides the default to the standalone emulator per system (psx → DuckStation, ps2 → PCSX2, ps3 → RPCS3, gc and wii → Dolphin). A custom `es_find_rules.xml` resolves `%EMULATOR_DUCKSTATION%` to `~/Applications/DuckStation-x64.AppImage` alone: ES-DE's bundled rule looks for `duckstation`, `duckstation-qt` and `org.duckstation.DuckStation` on the PATH before any AppImage, so a distro package or an old Flatpak there would win. Existing custom XML is kept as a numbered backup.
 
 ### BIOS / firmware / ROMs (user-provided)
 
 Not shipped — provide your own:
 
-- **ROMs** → `~/Emulation/roms/<system>/` (`psx`, `ps2`, `ps3`, `snes`, `n64`, `wii`). Set ES-DE's ROM directory here.
+- **ROMs** → `~/Emulation/roms/<system>/` (`psx`, `ps2`, `ps3`, `snes`, `n64`, `gc`, `wii`). Set ES-DE's ROM directory here.
 - **PS1 BIOS** → `${XDG_DATA_HOME:-$HOME/.local/share}/duckstation/bios`.
 - **PS2 BIOS** → PCSX2's `bios/` folder under `~/.var/app/net.pcsx2.PCSX2/`.
 - **PS3 firmware** → RPCS3 → File → Install Firmware (`PS3UPDAT.PUP` from Sony).
@@ -1074,7 +1074,7 @@ GitHub CLI login and a git identity derived from it: installs `gh`, logs in thro
 
 ### `scripts/emulation-setup.sh`
 
-Retro emulation setup — installs ES-DE (Terra repo) and the standalone emulators (PS1/PS2/PS3, Wii), grants Flatpak ROM access, and deploys the standalone-emulator defaults. BIOS/firmware/ROMs are user-provided (see the printed manual steps).
+Retro emulation setup — installs ES-DE (official AppImage) and the standalone emulators (PS1/PS2/PS3, GameCube/Wii), grants Flatpak ROM access, and deploys the standalone-emulator defaults. BIOS/firmware/ROMs are user-provided (see the printed manual steps).
 
 ### `scripts/strata-setup.sh`
 
@@ -1116,7 +1116,7 @@ Upgrades to the next Fedora release; see [Upgrading Fedora](#upgrading-fedora). 
 
 ### `scripts/verify-setup.sh`
 
-Checks the live system against what the setup configures: failed units, kernel arguments, auditd, zram, the sched_ext scheduler, tuned, the NVIDIA driver and suspend backing capacity, sleep services, gamescope's capability, NTSync, the firewall, SELinux, every deployed `system/` file and the RPM language list, unmounted fstab entries, the filesystem drivers and NVIDIA module of a newly installed kernel before it boots, the RPM Fusion release packages, pending `.rpmnew` files and, when installed, ES-DE, the CUDA repo exclude and the GPU backend a running Ollama found. Run it after `fedora-setup.sh` and on the first boot of a new Fedora release. It changes nothing and exits 1 when a check fails.
+Checks the live system against what the setup configures: failed units, kernel arguments, auditd, zram, the sched_ext scheduler, tuned, the NVIDIA driver and suspend backing capacity, sleep services, gamescope's capability, NTSync, the firewall, SELinux, every deployed `system/` file and the RPM language list, unmounted fstab entries, the filesystem drivers and NVIDIA module of a newly installed kernel before it boots, the RPM Fusion release packages, pending `.rpmnew` files and, when set up, the ES-DE AppImage, the CUDA repo exclude and the GPU backend a running Ollama found. Run it after `fedora-setup.sh` and on the first boot of a new Fedora release. It changes nothing and exits 1 when a check fails.
 
 ### `scripts/rice-start.sh` — alias: `rice`
 
@@ -1189,7 +1189,7 @@ Run in a terminal, the scripts that change the system leave their ✓ and ! line
 - **Terminal extras**: `fedora-setup.sh` installs lazygit to `/usr/local/bin`, ble.sh to `~/.local/share/blesh`, the JetBrains Mono Nerd Font to `~/.local/share/fonts/JetBrainsMono`, and the helper scripts to `~/scripts`; remove those, then delete the two blocks between the `# >>> fedora-kde-setup` and `# <<< fedora-kde-setup` markers from `~/.bashrc`, or restore `~/.bashrc.orig`.
 - **Ollama** (`scripts/ollama-setup.sh`): `sudo systemctl disable --now ollama`, then remove `/etc/systemd/system/ollama.service` and its `.d` drop-ins, `/usr/local/bin/ollama`, `/usr/local/lib/ollama`, `/var/lib/ollama`, the `ollama` user and group, and the GUI with `flatpak uninstall com.jeffser.Alpaca`.
 - **Strata** (`scripts/strata-setup.sh`): remove the checkout (`~/Prosjekter/Strata`), the model files (`/mnt/data/Strata-data` or your `STRATA_DATA`), the CUDA repo `/etc/yum.repos.d/cuda-fedora44.repo`, and `sudo dnf remove cuda-toolkit-13-4`.
-- **Emulation** (`scripts/emulation-setup.sh`): `flatpak uninstall` the Flatpak emulators, `sudo dnf remove emulationstation-de`, and remove `~/Applications/DuckStation-x64.AppImage` plus its license/source sidecars. Restore the numbered backups of `~/ES-DE/custom_systems/es_systems.xml` and `es_find_rules.xml` if present. ROMs, BIOS files and saves are left alone.
+- **Emulation** (`scripts/emulation-setup.sh`): `flatpak uninstall` the Flatpak emulators, and remove `~/Applications/ES-DE_x64.AppImage`, `~/.local/share/applications/es-de.desktop` and `~/Applications/DuckStation-x64.AppImage` plus its license/source sidecars (`sudo dnf remove emulationstation-de` for an ES-DE from Terra). Restore the numbered backups of `~/ES-DE/custom_systems/es_systems.xml` and `es_find_rules.xml` if present. ROMs, BIOS files and saves are left alone.
 - **Windows VM** (`scripts/windows-vm-setup.sh`): `sudo virsh undefine win11 --nvram --tpm --storage vda` removes the VM with its disk, NVRAM and TPM state; delete the ISOs from `/var/lib/libvirt/images` yourself. With `VM_LIBVIRT_GROUP=yes`, leave the group with `sudo gpasswd -d $USER libvirt`. The libvirt packages and the `/var/lib/libvirt/images` subvolume stay, since other VMs may use them.
 
 ---
