@@ -311,6 +311,8 @@ Problem 2: conflicting requests
   - nothing provides /usr/share/dnf5/libdnf.conf.d/ needed by rpmfusion-free-release-45-1.noarch from rpmfusion-free
 Problem 3: problem with installed package emulationstation-de-3.5.0-1.fc44.x86_64
   - installed package emulationstation-de-3.5.0-1.fc44.x86_64 requires libavutil.so.60()(64bit), but none of the providers can be installed
+You can try to add to command line:
+  --setopt=optional_metadata_types=filelists to load additional filelists metadata
 LOG
     cat >"$upg/bin/sudo" <<'STUB'
 #!/bin/bash
@@ -342,6 +344,13 @@ STUB
         [[ $output == *"https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-45.noarch.rpm"* ]] ||
         fail "no RPM Fusion reinstall command"
     [[ $output == *"sudo dnf install emulationstation-de"* ]] || fail "no reinstall hint for a package without a build"
+    : >"$SAFE_LOG"
+    output=$(PATH="$upg/bin:$stub:$PATH" TMPDIR="$upg" HW_ROOT="$upg/hw" UPGRADE_PROBLEMS=/dev/null NO_COLOR=1 \
+        bash "$upg/repo/scripts/fedora-upgrade.sh" --yes 2>&1) || fail "a clean upgrade failed: $output"
+    download=$(grep '^sudo dnf system-upgrade download ' "$SAFE_LOG" | grep -v -- --assumeno) || fail "no clean download"
+    [[ $download != *filelists* && $download != *--exclude* && $download != *--allowerasing* ]] ||
+        fail "a clean upgrade got workaround options: $download"
+    [[ $output != *"reinstall what the upgrade removed"* ]] || fail "a clean upgrade listed removals"
 fi
 
 echo "All helper script failure-path tests passed."

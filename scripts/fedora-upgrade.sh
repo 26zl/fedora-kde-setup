@@ -106,8 +106,7 @@ fi
 section "Download"
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT
-# A file requirement outside /etc, /usr/bin and /usr/sbin resolves only with the filelists metadata.
-dnf_opts=(--releasever="$target" "--setopt=optional_metadata_types=comps,filelists,updateinfo")
+dnf_opts=(--releasever="$target")
 resolve() {  # dnf options...; dnf's output lands in $log
     # shellcheck disable=SC2024  # the log is this user's own temp file
     sudo dnf system-upgrade download "${dnf_opts[@]}" "$@" --assumeno >"$log" 2>&1 || true
@@ -124,7 +123,14 @@ problem_packages() {  # installed|broken
 }
 echo "  resolving the Fedora $target transaction (fetches its metadata first)..."
 extra=() removed=()
-if ! resolve; then
+resolved=0
+resolve && resolved=1
+# dnf names this option itself when a file requirement needs more than the primary metadata
+if [ "$resolved" -eq 0 ] && grep -q 'optional_metadata_types=filelists' "$log"; then
+    dnf_opts+=("--setopt=optional_metadata_types=comps,filelists,updateinfo")
+    resolve && resolved=1
+fi
+if [ "$resolved" -eq 0 ]; then
     # A broken N+1 build is excluded so that --allowerasing drops the installed copy instead of
     # failing on the new one (RPM Fusion's 45-1 release packages); a package with no N+1 build
     # is erased the same way (ES-DE on 45). dnf install brings both back once their repo is fixed.
