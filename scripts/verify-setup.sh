@@ -114,8 +114,15 @@ fi
 
 section "Graphics"
 if [ -n "$NVIDIA_BRANCH" ]; then
-    if [ -r /proc/driver/nvidia/version ]; then
-        pass "NVIDIA driver $(modinfo -F version nvidia 2>/dev/null) loaded"
+    version_file=${NVIDIA_VERSION_FILE:-/proc/driver/nvidia/version}
+    if [ -r "$version_file" ]; then
+        loaded=$(grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' "$version_file" | head -n 1)
+        pass "NVIDIA driver ${loaded:-of unknown version} loaded"
+        # modinfo names the module on disk, which an update replaces while the old one stays loaded
+        if ! smi=$(timeout 10 nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>&1) &&
+            [[ $smi == *"version mismatch"* ]]; then
+            note "the installed NVIDIA driver differs from the loaded $loaded: reboot to load it; until then newly started programs get no GPU compute"
+        fi
     else
         fail "NVIDIA driver not loaded (MOK after a BIOS flash: scripts/mok-reenroll.sh)"
     fi

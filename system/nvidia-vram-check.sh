@@ -1,8 +1,10 @@
 #!/bin/bash
-# Check NVIDIA's active suspend backing store without changing the system.
+# Check NVIDIA's active suspend backing store.
 # Exits nonzero if the store cannot hold all GPU memory plus a five percent margin. Without
 # NVreg_TemporaryFilePath the open module keeps it in RAM since 615.71.09 and older drivers
-# use /tmp; MemAvailable bounds a store in RAM or on a tmpfs.
+# use /tmp; MemAvailable bounds a store in RAM or on a tmpfs. The only thing it writes is the
+# GPU memory total, for the time between a driver update and the reboot, when nvidia-smi
+# cannot reach the loaded module.
 
 [ $# -eq 0 ] || { sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; case $1 in -h | --help) exit 0 ;; *) exit 2 ;; esac; }
 set -euo pipefail
@@ -31,14 +33,23 @@ else
     case ",$mount_options," in *,ro,*) fail 'backing filesystem is read-only' ;; esac
 fi
 
-memory=$(timeout 10 nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits) ||
-    fail 'cannot read GPU memory capacity'
+state=${NVIDIA_VRAM_STATE:-${STATE_DIRECTORY:-/var/lib/nvidia-vram-check}/total-mib}
 total_mib=0
-while IFS= read -r value; do
-    [[ $value =~ ^[[:space:]]*([0-9]+)[[:space:]]*$ ]] || fail 'invalid GPU memory capacity'
-    total_mib=$((total_mib + 10#${BASH_REMATCH[1]}))
-done <<< "$memory"
-[ "$total_mib" -gt 0 ] || fail 'GPU memory capacity is empty'
+if memory=$(timeout 10 nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits); then
+    while IFS= read -r value; do
+        [[ $value =~ ^[[:space:]]*([0-9]+)[[:space:]]*$ ]] || fail 'invalid GPU memory capacity'
+        total_mib=$((total_mib + 10#${BASH_REMATCH[1]}))
+    done <<< "$memory"
+    [ "$total_mib" -gt 0 ] || fail 'GPU memory capacity is empty'
+    # only the service can write it; a run as a user leaves the remembered total alone
+    { printf '%s\n' "$total_mib" >"$state"; } 2>/dev/null || true
+elif [[ $memory == *"version mismatch"* && $(cat "$state" 2>/dev/null) =~ ^[1-9][0-9]*$ ]]; then
+    # an updated driver waits for a reboot: the loaded module still suspends, but nvidia-smi cannot ask it
+    total_mib=$(cat "$state")
+    echo "NVIDIA suspend: nvidia-smi and the loaded driver differ until the reboot; using the $total_mib MiB reported before" >&2
+else
+    fail 'cannot read GPU memory capacity'
+fi
 required=$(((total_mib * 1048576 * 105 + 99) / 100))
 if [ "$store" = RAM ]; then
     available=$(awk '/^MemAvailable:/ {print $2 * 1024}' "$meminfo") || fail 'cannot read MemAvailable'

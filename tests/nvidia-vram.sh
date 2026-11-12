@@ -16,6 +16,7 @@ STUB
 cat >"$scratch/bin/nvidia-smi" <<'STUB'
 #!/bin/bash
 [ "${GPU_READ_FAIL:-no}" != yes ] || exit 1
+[ "${GPU_READ_FAIL:-no}" != mismatch ] || { echo 'Failed to initialize NVML: Driver/library version mismatch'; exit 18; }
 printf '%s\n' "${GPU_MEMORY:-8192}"
 STUB
 cat >"$scratch/bin/df" <<'STUB'
@@ -24,6 +25,8 @@ printf 'Avail\n%s\n' "${BACKING_FREE:-18038862644}"
 STUB
 chmod +x "$scratch/bin/"*
 export PATH="$scratch/bin:$PATH" MEMINFO_FILE="$scratch/meminfo" NVIDIA_VERSION_FILE="$scratch/version"
+# a directory that does not exist yet: nothing can be remembered until it does
+export NVIDIA_VRAM_STATE="$scratch/state/total-mib"
 write_version() {  # module release
     printf 'NVRM version: NVIDIA UNIX %s for x86_64  %s  Release Build  (fixture)\n' "$1" "$2" >"$NVIDIA_VERSION_FILE"
 }
@@ -83,6 +86,25 @@ for driver in 'Open Kernel Module|610.57.04' 'x86_64 Kernel Module|615.78.08'; d
 done
 rm -f "$NVIDIA_VERSION_FILE"
 BACKING_FREE=1 reject '/tmp needs at least'
+
+# Between a driver update and the reboot nvidia-smi cannot reach the loaded module: the total it gave before stands in.
+write_params
+[ ! -e "$scratch/state" ] || { echo 'FAIL: the check created its own state directory' >&2; exit 1; }
+GPU_READ_FAIL=mismatch reject 'cannot read GPU memory capacity'
+mkdir "$scratch/state"
+GPU_MEMORY=$'8192\n4096' bash "$repo/system/nvidia-vram-check.sh" >/dev/null
+[ "$(cat "$NVIDIA_VRAM_STATE")" = 12288 ] || { echo 'FAIL: the GPU memory total was not remembered' >&2; exit 1; }
+output=$(GPU_READ_FAIL=mismatch bash "$repo/system/nvidia-vram-check.sh" 2>&1) ||
+    { echo "FAIL: a driver update refused the suspend: $output" >&2; exit 1; }
+[[ $output == *'using the 12288 MiB reported before'* && $output == *'has room for 12288 MiB'* ]] ||
+    { echo "FAIL: the remembered total was not used: $output" >&2; exit 1; }
+[ "$(cat "$NVIDIA_VRAM_STATE")" = 12288 ] || { echo 'FAIL: a failed read changed the remembered total' >&2; exit 1; }
+GPU_READ_FAIL=mismatch BACKING_FREE=1 reject 'needs at least 12903 MiB'
+GPU_READ_FAIL=yes reject 'cannot read GPU memory capacity'
+for junk in '' 0 012 '12288 MiB' -5; do
+    printf '%s\n' "$junk" >"$NVIDIA_VRAM_STATE"
+    GPU_READ_FAIL=mismatch reject 'cannot read GPU memory capacity'
+done
 grep -q 'NVreg_TemporaryFilePath=/var/tmp' "$repo/system/nvidia-580xx-storage.conf" ||
     { echo 'FAIL: 580xx keeps its store on the /tmp tmpfs' >&2; exit 1; }
 ! grep -q 'TemporaryFilePath' "$repo/system/nvidia-performance.conf" ||
