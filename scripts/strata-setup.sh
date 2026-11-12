@@ -23,7 +23,7 @@ ok()      { echo -e "  ${TEAL}✓${RESET} $1"; journal "ok: $1"; }
 warn()    { echo -e "  ${RED}!${RESET} $1"; journal "warning: $1"; }
 section() { echo -e "\n${TEAL}━━━ $1 ━━━${RESET}"; journal "$1"; }
 
-PINNED_REV=146df3c468739147f520ac3816de806f71232571  # v0.2.12
+PINNED_REV=628f74955a56fcba092495b800dd02af75373a0f  # v0.2.13.1
 STRATA_URL=${STRATA_URL:-https://github.com/Niko1221/Strata.git}
 # setup.conf may set both paths and STRATA_REV; the environment wins over it
 # shellcheck disable=SC1091
