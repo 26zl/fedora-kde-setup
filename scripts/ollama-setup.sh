@@ -191,7 +191,8 @@ DevicePolicy=closed
 DeviceAllow=char-nvidiactl rw
 DeviceAllow=char-nvidia-caps rw
 DeviceAllow=char-nvidia-frontend rw
-DeviceAllow=char-nvidia-uvm rw
+# m: nvidia-uvm.conf's pre-command creates /dev/nvidia-uvm from inside this cgroup, where the device filter applies
+DeviceAllow=char-nvidia-uvm rwm
 DeviceAllow=char-drm rw
 DeviceAllow=char-fb rw
 HARDEN
@@ -200,6 +201,7 @@ case $ollama_home in /var/lib/ollama | / | "") ;; *) printf 'ReadWritePaths=%s\n
 printf '[Service]\nEnvironment="OLLAMA_GPU_OVERHEAD=%s"\n' "$OVERHEAD" > "$DROPDIR/vram-reserve.conf"
 # Without this CUDA falls back to Vulkan: DeviceAllow= resolves char-nvidia-uvm when the unit starts,
 # and NoNewPrivileges stops libcuda's setuid nvidia-modprobe from loading it and creating /dev/nvidia-uvm.
+# The + prefix lifts the per-process sandbox, not the cgroup's device filter, hence the m above.
 cat > "$DROPDIR/nvidia-uvm.conf" <<'UVM'
 [Unit]
 Wants=modprobe@nvidia_uvm.service

@@ -16,6 +16,8 @@ case "$*" in
         [ "$VERIFY_PROBES" = available ] || exit 1
         echo 'example.service loaded failed failed Example service' ;;
     "is-active -q ollama") [ "${OLLAMA_ACTIVE:-yes}" = yes ] || exit 3 ;;
+    "show ollama -p ExecStartPre --value")
+        echo "{ path=/usr/bin/nvidia-modprobe ; argv[]=/usr/bin/nvidia-modprobe -c0 -u ; ignore_errors=yes ; start_time=[n/a] ; stop_time=[n/a] ; pid=1 ; code=exited ; status=${PRE_STATUS:-0} }" ;;
 esac
 exit 0
 STUB
@@ -28,7 +30,10 @@ cat >"$tmp/bin/modinfo" <<'STUB'
 #!/bin/bash
 [ "${NVIDIA_MODULE:-present}" = present ]
 STUB
-printf '#!/bin/bash\necho '"'"'msg="inference compute" id=0 library=CUDA'"'"'\n' >"$tmp/bin/journalctl"
+cat >"$tmp/bin/journalctl" <<'STUB'
+#!/bin/bash
+echo "msg=\"inference compute\" id=0 library=${OLLAMA_BACKEND:-CUDA}"
+STUB
 mkdir -p "$tmp/hardware/etc/modprobe.d" "$tmp/hardware/lib/modules/9.9.9-test"
 : >"$tmp/hardware/lib/modules/9.9.9-test/vmlinuz"
 printf '/dev/fixture-root / btrfs defaults 0 0\n/dev/fixture-data /mnt/fixture ntfs3 noauto,discard 0 0\n' >"$tmp/hardware/etc/fstab"
@@ -109,9 +114,15 @@ run_nvidia
 expect '→ NVIDIA saves video memory to /var/tmp from the next boot'
 [[ $output != *"no NVIDIA module for kernel"* && $output != *"ollama is enabled but not running"* ]] ||
     { echo 'FAIL: a built NVIDIA module or a running ollama was reported' >&2; exit 1; }
+expect '✓ ollama computes on CUDA'
 NVIDIA_MODULE=missing OLLAMA_ACTIVE=no run_nvidia
 expect '→ no NVIDIA module for kernel 9.9.9-test yet'
 expect '✗ ollama is enabled but not running'
+# a failed nvidia-modprobe pre-command is named as the cause of a Vulkan start
+OLLAMA_BACKEND=Vulkan PRE_STATUS=1 run_nvidia
+expect '✗ ollama computes on Vulkan, not CUDA: nvidia-modprobe exited 1 before the start'
+OLLAMA_BACKEND=Vulkan run_nvidia
+expect '✗ ollama computes on Vulkan, not CUDA (sudo bash scripts/ollama-setup.sh adds nvidia-uvm.conf)'
 
 # STRATA_REV=latest: the verifier says when Strata has a newer release than the checkout
 vgit() { git -c user.name=fixture -c user.email=fixture@invalid -c commit.gpgsign=false -c tag.gpgsign=false "$@"; }

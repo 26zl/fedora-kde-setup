@@ -253,7 +253,8 @@ unpack=$(line_of '^zstd -dc ')
 grep -qx "tar -xf - -C $fix/usr/local" "$SAFE_LOG" && [ -e "$fix/usr/local/lib/ollama/extracted" ] ||
     fail "a download with the right hash was not extracted into the prefix"
 grep -q '^useradd .*-d /var/lib/ollama ' "$SAFE_LOG" || fail "the ollama user was not created with /var/lib/ollama"
-for line in PrivateTmp=true PrivateUsers=true 'RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX' UMask=0077; do
+for line in PrivateTmp=true PrivateUsers=true 'RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX' UMask=0077 \
+            'DeviceAllow=char-nvidia-uvm rwm'; do
     grep -qxF "$line" "$dropdir/hardening.conf" || fail "the hardening drop-in lacks $line"
 done
 grep -qx 'ReadWritePaths=/var/lib/ollama' "$dropdir/hardening.conf" || fail "the hardening drop-in lost its data directory"

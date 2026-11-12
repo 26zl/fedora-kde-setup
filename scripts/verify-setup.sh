@@ -196,7 +196,13 @@ elif [ -n "$ollama_on" ]; then
         pass "ollama computes on CUDA"
     else
         lib=${backend#library=}
-        fail "ollama computes on ${lib:-no GPU}, not CUDA (sudo bash scripts/ollama-setup.sh adds nvidia-uvm.conf)"
+        pre=$(systemctl show ollama -p ExecStartPre --value 2>/dev/null | grep nvidia-modprobe |
+            grep -o 'status=[0-9]*' | tail -n 1 || true)
+        if [ -n "$pre" ] && [ "$pre" != status=0 ]; then
+            fail "ollama computes on ${lib:-no GPU}, not CUDA: nvidia-modprobe exited ${pre#status=} before the start, so /dev/nvidia-uvm was missing (sudo bash scripts/ollama-setup.sh rewrites the hardening drop-in)"
+        else
+            fail "ollama computes on ${lib:-no GPU}, not CUDA (sudo bash scripts/ollama-setup.sh adds nvidia-uvm.conf)"
+        fi
     fi
 fi
 if [ -d ~/ES-DE/custom_systems ]; then
