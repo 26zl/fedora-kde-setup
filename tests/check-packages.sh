@@ -12,9 +12,13 @@ case $level in error | warning) ;; *) echo "Usage: $0 [error|warning]" >&2; exit
 rel=$(rpm -E %fedora)
 echo "==> Fedora $rel: adding repos"
 dnf -y -q install dnf5-plugins
-dnf -y -q install \
+# RPM Fusion publishes a release package only once a Fedora release is branched; before that the URL gives 403
+if ! dnf -y -q install \
     "https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-$rel.noarch.rpm" \
-    "https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$rel.noarch.rpm"
+    "https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$rel.noarch.rpm"; then
+    [ "$level" = warning ] || exit 1
+    echo "::warning::RPM Fusion has no release package for Fedora $rel yet; its packages show as missing below"
+fi
 grep -hoP 'copr enable -y \K\S+' scripts/*.sh | while read -r c; do dnf -y -q copr enable "$c"; done
 grep -hoP -- '--from-repofile=\K\S+' scripts/*.sh |
     while read -r r; do dnf -y -q config-manager addrepo --from-repofile="$r"; done
