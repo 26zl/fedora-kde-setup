@@ -38,7 +38,7 @@ CHATBOX_VERSION=1.24.4
 CHATBOX_SHA256=34641898feadf7edc517312412b98dd5ee7276a7d0408be2e64bb5ff00d3e43d
 CHATBOX_APP=Applications/Chatbox-x86_64.AppImage
 NAME=gemma4-12b-heretic
-CTX=8192
+CTX=16384            # 8192 overflows once a tool returns a pasted file; Ollama then drops the oldest message
 TARGET=3000          # bake the largest num_gpu that still leaves this many MiB free
 PASS=2500            # a loaded model must leave at least this many MiB free to be safe
 OVERHEAD=$((3 * 1024 * 1024 * 1024))
@@ -79,6 +79,12 @@ verify() {
         ok "reserve floor: OLLAMA_GPU_OVERHEAD set"
     else
         warn "reserve floor: not set (run with sudo)"
+        failed=1
+    fi
+    if systemctl show ollama -p Environment 2>/dev/null | grep -qE 'OLLAMA_MAX_LOADED_MODELS=1( |$)'; then
+        ok "one model at a time: OLLAMA_MAX_LOADED_MODELS set"
+    else
+        warn "one model at a time: not set (run with sudo)"
         failed=1
     fi
     backend=$(journalctl -u ollama -b -o cat 2>/dev/null | grep -o 'msg="inference compute".*' | tail -n 1 |
@@ -215,6 +221,8 @@ HARDEN
 case $ollama_home in /var/lib/ollama | / | "") ;; *) printf 'ReadWritePaths=%s\n' "$ollama_home" >>"$DROPDIR/hardening.conf" ;; esac
 # sorts after hardening.conf, whose empty Environment= would otherwise clear this floor
 printf '[Service]\nEnvironment="OLLAMA_GPU_OVERHEAD=%s"\n' "$OVERHEAD" > "$DROPDIR/vram-reserve.conf"
+# with num_gpu baked, a second model is started beside the loaded one, fails with cudaMalloc and is retried
+printf '[Service]\nEnvironment="OLLAMA_MAX_LOADED_MODELS=1"\n' > "$DROPDIR/single-model.conf"
 # Without this CUDA falls back to Vulkan: DeviceAllow= resolves char-nvidia-uvm when the unit starts,
 # and NoNewPrivileges stops libcuda's setuid nvidia-modprobe from loading it and creating /dev/nvidia-uvm.
 # The + prefix lifts the per-process sandbox, not the cgroup's device filter, hence the m above.
@@ -231,7 +239,7 @@ systemctl enable ollama
 systemctl restart ollama
 for _ in $(seq 30); do "$OLLAMA" list >/dev/null 2>&1 && break; sleep 1; done
 "$OLLAMA" list >/dev/null 2>&1 || { warn "ollama.service did not become ready"; exit 1; }
-ok "ollama.service running, hardening, VRAM reserve and nvidia-uvm applied"
+ok "ollama.service running, hardening, VRAM reserve, one-model limit and nvidia-uvm applied"
 
 section "Model: $NAME"
 if pgrep -f '^ollama pull' >/dev/null; then
