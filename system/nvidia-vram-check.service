@@ -7,7 +7,7 @@ ConditionPathExists=/proc/driver/nvidia/params
 Type=oneshot
 ExecStart=/usr/local/bin/nvidia-vram-check.sh
 TimeoutStartSec=15s
-# read-only check: PrivateDevices, PrivateTmp, ProtectHome and ProtectSystem=strict would change what it measures
+# PrivateDevices, PrivateTmp, ProtectHome and ProtectSystem=strict would change what the check measures
 CapabilityBoundingSet=
 LockPersonality=yes
 NoNewPrivileges=yes
@@ -22,6 +22,8 @@ RestrictAddressFamilies=AF_UNIX
 RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
+# holds the GPU memory total the check falls back on between a driver update and the reboot
+StateDirectory=nvidia-vram-check
 SystemCallArchitectures=native
 
 [Install]

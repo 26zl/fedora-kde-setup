@@ -84,7 +84,7 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   ├── nvidia-wayland.conf     # /etc/environment.d/ — NVIDIA Wayland env vars (NVIDIA only, not on hybrid laptops)
 │   ├── nvidia-performance.conf # /etc/modprobe.d/ — NVIDIA kernel options (NVIDIA only)
 │   ├── nvidia-580xx-storage.conf # /etc/modprobe.d/ — 580xx: video memory saved to /var/tmp, not /tmp
-│   ├── nvidia-vram-check.sh    # /usr/local/bin/ — read-only NVIDIA suspend storage check
+│   ├── nvidia-vram-check.sh    # /usr/local/bin/ — NVIDIA suspend storage check
 │   ├── nvidia-vram-check.service # /etc/systemd/system/ — require sufficient storage before sleep
 │   ├── 99-tweaks.conf          # /etc/sysctl.d/ — performance tweaks
 │   ├── 99-disable-modules.conf # /etc/modprobe.d/ — blacklist unused protocols (attack surface)
@@ -272,13 +272,16 @@ On suspend the driver saves the video memory. The open kernel module of the curr
 the 580xx branch writes it to `/tmp`, a tmpfs of half the RAM, which cannot hold a card with
 more than about 47% of the RAM. On 580xx, `apply-system.sh` therefore also deploys
 `nvidia-580xx-storage.conf`, which moves the file to `/var/tmp` on disk (copy it to
-`/etc/modprobe.d/` by hand on such a machine). The read-only capacity check runs before
+`/etc/modprobe.d/` by hand on such a machine). The capacity check runs before
 sleep and the NVIDIA sleep services: it needs room for the sum of all GPU memory plus 5%,
 following
 [NVIDIA's sizing guidance](https://download.nvidia.com/XFree86/Linux-x86_64/580.105.08/README/powermanagement.html),
 and for a store in RAM or on a tmpfs it counts `MemAvailable`, so a suspend with a loaded
 model filling the RAM is refused with a message instead of failing halfway. Inspect refusals
-with `journalctl -u nvidia-vram-check.service`.
+with `journalctl -u nvidia-vram-check.service`. After a driver update `nvidia-smi` cannot
+reach the still-loaded old module until the reboot, so the check keeps the GPU memory total
+in `/var/lib/nvidia-vram-check/` and uses it then; without that, every suspend between the
+update and the reboot would be refused. `verify-setup.sh` notes such a pending reboot.
 
 `kde-display-sleep.service` captures enabled, connected external displays before
 `sleep.target` and restores only that recorded set after user sessions thaw. It only acts
@@ -1209,7 +1212,7 @@ Run in a terminal, the scripts that change the system leave their ✓ and ! line
 
 - **Pre-install recovery**: before package or configuration changes, `fedora-setup.sh` creates private read-only root and separate home snapshots plus verified `/boot` and EFI archives under `/.fedora-kde-setup-backups/run-*`. A `READY` marker identifies a completed backup; `RECOVERY.txt`, `layout.txt` and `mounts.txt` record recovery instructions, original layout and RTC policy. Recover from a Fedora live USB after saving newer work elsewhere. A later run reuses a completed restore point instead of adding one; Snapper does not manage them, and `scripts/disk-cleanup.sh` lists them and removes them on request. They protect the supported root/home/boot layout; external disks, firmware and EFI NVRAM are outside their scope. Filesystem snapshots on the same disk are not protection against disk loss or an atomic application transaction.
 - **Later system deployments**: `apply-system.sh` separately takes a Snapper root snapshot and prints its number. `sudo snapper -c root status <n>..0` lists what changed since, and `sudo snapper -c root undochange <n>..0 <path>` reverts a file. Its root snapshot excludes `/boot`; use the original pre-install archives when reverting that install, or remove later kernel arguments with `sudo grubby --update-kernel=ALL --remove-args="<args>"`.
-- **System files**: every target listed under Repository Structure is a file the setup adds, so deleting it undoes it once its units are off: run `sudo systemctl disable --now nvidia-vram-check.service kde-display-sleep.service usb-autosuspend.service` first, because a deleted unit that `sleep.target` still requires stops every suspend, and `sudo systemctl daemon-reload` after. The exceptions are `/etc/dnf/dnf.conf` and `/etc/tuned/ppd.conf`, which replace package defaults. Delete those and run `sudo dnf reinstall <package>` (`rpm -qf <file>` names it); a reinstall alone keeps the edited file because it is `%config(noreplace)`. The login screen wallpaper is one key in `/etc/plasmalogin.conf`; `apply-system.sh` with `RICE=no` removes it. `kernel.kexec_load_disabled` and `kernel.unprivileged_bpf_disabled` stay set until the next boot after `/etc/sysctl.d/99-tweaks.conf` is gone.
+- **System files**: every target listed under Repository Structure is a file the setup adds, so deleting it undoes it once its units are off: run `sudo systemctl disable --now nvidia-vram-check.service kde-display-sleep.service usb-autosuspend.service` first, because a deleted unit that `sleep.target` still requires stops every suspend, and `sudo systemctl daemon-reload` after. `/var/lib/nvidia-vram-check` holds one number the capacity check wrote and can go too. The exceptions are `/etc/dnf/dnf.conf` and `/etc/tuned/ppd.conf`, which replace package defaults. Delete those and run `sudo dnf reinstall <package>` (`rpm -qf <file>` names it); a reinstall alone keeps the edited file because it is `%config(noreplace)`. The login screen wallpaper is one key in `/etc/plasmalogin.conf`; `apply-system.sh` with `RICE=no` removes it. `kernel.kexec_load_disabled` and `kernel.unprivileged_bpf_disabled` stay set until the next boot after `/etc/sysctl.d/99-tweaks.conf` is gone.
 - **Services, firewall, KDE settings**: the commands in the guide above are the record; `systemctl unmask`, `firewall-cmd --permanent --add-service=<name>` and `kwriteconfig6` with the old value reverse them.
 - **Changes with no file to delete**: `fedora-setup.sh` swaps `glibc-all-langpacks` for your languages' langpacks and limits RPM translations to them in `/etc/rpm/macros.image-language-conf`, which `apply-system.sh` rewrites on every run (reinstall `glibc-all-langpacks`, delete the file and stop running `apply-system.sh` to undo it). It disables ABRT (`sudo systemctl enable --now abrtd`), removes Fedora's Flatpak remote when nothing uses it, and writes these KDE keys with `kwriteconfig6`: KWin `LatencyPolicy`, the gamepad, zoom, shake-cursor and blur plugins, the Meta-only launcher shortcut, launch feedback, the splash screen, `loginMode`, `AnimationDurationFactor`, Baloo indexing and the lock-screen wallpaper.
 - **User configs**: `fedora-setup.sh` keeps replaced config files, including files within theme directories, the Conky unit, optional audio rules and helper scripts, as `<file>.~N~` next to each file. It preserves unrelated files inside copied theme directories. KDE settings written through `kwriteconfig6` need their own reversal.

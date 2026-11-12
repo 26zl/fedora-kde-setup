@@ -39,6 +39,15 @@ mkdir -p "$tmp/hardware/etc/modprobe.d" "$tmp/hardware/lib/modules/9.9.9-test"
 printf '/dev/fixture-root / btrfs defaults 0 0\n/dev/fixture-data /mnt/fixture ntfs3 noauto,discard 0 0\n' >"$tmp/hardware/etc/fstab"
 printf 'options nvidia NVreg_TemporaryFilePath=/var/tmp\n' >"$tmp/hardware/etc/modprobe.d/nvidia-580xx-storage.conf"
 printf 'PreserveVideoMemoryAllocations: 1\nTemporaryFilePath: ""\n' >"$tmp/nvidia-params"
+printf 'NVRM version: NVIDIA UNIX Open Kernel Module for x86_64  615.78.08  Release Build  (fixture)\n' >"$tmp/nvidia-version"
+cat >"$tmp/bin/nvidia-smi" <<'STUB'
+#!/bin/bash
+[ "${NVIDIA_SMI:-ok}" != mismatch ] || { echo 'Failed to initialize NVML: Driver/library version mismatch'; exit 18; }
+case $* in
+    *driver_version*) echo 615.78.08 ;;
+    *) echo 8192 ;;
+esac
+STUB
 cat >"$tmp/bin/tuned-adm" <<'STUB'
 #!/bin/bash
 [ "$VERIFY_PROBES" = available ] || exit 1
@@ -108,8 +117,16 @@ MISSING_FS=ntfs3 run_probe available
 expect '✗ kernel 9.9.9-test lacks the filesystem drivers: ntfs3'
 run_nvidia() {
     output=$(PATH="$tmp/bin:$PATH" HW_ROOT="$tmp/hardware" FORM_FACTOR=desktop NVIDIA_DRIVER=current NO_COLOR=1 \
-        NVIDIA_PARAMS_FILE="$tmp/nvidia-params" VERIFY_PROBES=available bash "$tmp/repo/scripts/verify-setup.sh" 2>/dev/null) || true
+        NVIDIA_PARAMS_FILE="$tmp/nvidia-params" NVIDIA_VERSION_FILE="$tmp/nvidia-version" \
+        NVIDIA_VRAM_STATE="$tmp/vram-state/total-mib" VERIFY_PROBES=available \
+        bash "$tmp/repo/scripts/verify-setup.sh" 2>/dev/null) || true
 }
+run_nvidia
+# the loaded module's version, not the one modinfo reads from the disk
+expect '✓ NVIDIA driver 615.78.08 loaded'
+[[ $output != *'differs from the loaded'* ]] || { echo 'FAIL: a matching driver was reported as waiting for a reboot' >&2; exit 1; }
+NVIDIA_SMI=mismatch run_nvidia
+expect '→ the installed NVIDIA driver differs from the loaded 615.78.08: reboot to load it'
 run_nvidia
 expect '→ NVIDIA saves video memory to /var/tmp from the next boot'
 [[ $output != *"no NVIDIA module for kernel"* && $output != *"ollama is enabled but not running"* ]] ||

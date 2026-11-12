@@ -225,6 +225,8 @@ required_by = {'sleep.target', 'nvidia-suspend.service', 'nvidia-hibernate.servi
     'nvidia-suspend-then-hibernate.service'}
 assert set(guard['Install']['RequiredBy'].split()) == required_by
 assert required_by.issubset(guard['Unit']['Before'].split())
+# without it the check has nowhere to remember the GPU memory total
+assert guard['Service']['StateDirectory'] == 'nvidia-vram-check'
 hook = (repo / 'system/kwin-display-fix.sh').read_text()
 assert all(command not in hook for command in ('kscreen-doctor', 'loginctl', 'runuser', 'dbus-send'))
 with tempfile.TemporaryDirectory() as temporary:
