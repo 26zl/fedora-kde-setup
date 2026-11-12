@@ -29,7 +29,7 @@ Check these before running anything, so no script stops halfway:
 | An NVIDIA card with Secure Boot on | Being at the machine for the next boot: the akmods signing key is enrolled at the blue MOK Manager screen, with a one-time password you choose. A later BIOS update clears that enrollment; `scripts/mok-reenroll.sh` restores it. |
 | `fedora-upgrade.sh` | At least 10 GB free on `/` and 200 MB on `/boot`; the script checks both before it changes anything. |
 | `strata-setup.sh` | An NVIDIA card, Turing or newer (tested with 12 GB of VRAM). About 86 GB for the model files on a disk outside `/home`, 5 GB for the CUDA toolkit and 1 GB for the checkout. At least 30 GB of RAM: the Coder model holds about 20 GB while loaded, and from 40 GB of RAM the script picks the full model, which needs about 48 GB. |
-| `ollama-setup.sh` | An NVIDIA card and about 14 GB of disk: Ollama 2.5 GB, the model 8.7 GB, the Alpaca app 2.3 GB. With 12 GB of VRAM the model runs almost entirely on the GPU; a smaller card runs part of it on the CPU. |
+| `ollama-setup.sh` | An NVIDIA card and about 12 GB of disk: Ollama 2.5 GB, the model 8.7 GB, the Chatbox app 0.2 GB. With 12 GB of VRAM the model runs almost entirely on the GPU; a smaller card runs part of it on the CPU. |
 | `emulation-setup.sh` | About 1.7 GB of disk for ES-DE and the emulators: 0.4 GB of AppImages, 1.3 GB of Flatpaks (RetroArch alone 0.8 GB). On a machine without Flatpak apps, up to 6 GB more for the runtimes they share: KDE 6.10 and 6.11 and Freedesktop 26.08 with their GL drivers. Your own BIOS, firmware and game dumps: the script installs the emulators and nothing else. Optionally a second disk for the ROMs. |
 | `windows-vm-setup.sh` | Virtualization switched on in the firmware setup (AMD SVM or Intel VT-x), at least 16 GB of RAM (the VM gets 8 GiB from 24 GB, else 4 GiB), room on `/` for a VM disk that grows up to 128 GiB, a Windows 11 x64 ISO from Microsoft and a Windows license. |
 
@@ -118,7 +118,7 @@ Developed and verified on an AMD desktop with a discrete NVIDIA card next to the
 │   ├── apply-system.sh         # Deploy system/ files to their system paths
 │   ├── emulation-setup.sh      # ES-DE + one emulator per system, 14 systems — opt-in, ~1.7 GB
 │   ├── strata-setup.sh         # Local LLM (Strata) on the NVIDIA card — opt-in, 85 GB+
-│   ├── ollama-setup.sh         # Local LLM (Ollama) + Alpaca chat GUI — opt-in, ~9 GB
+│   ├── ollama-setup.sh         # Local LLM (Ollama) + Chatbox chat GUI — opt-in, ~9 GB
 │   ├── windows-vm-setup.sh     # Windows 11 VM on KVM/libvirt (Secure Boot, TPM, virtio) — opt-in
 │   ├── setup-github.sh         # GitHub CLI login + git identity/defaults
 │   ├── rice-start.sh           # Restart Conky
@@ -1050,7 +1050,7 @@ Strata 0.2 is a desktop app, a Terminal and an engine, with Linux AppImages and 
 
 ## Local LLM (Ollama)
 
-[Ollama](https://ollama.com) serves `gemma-4-12B-it-uncensored-heretic` (an uncensored community build of Gemma, from Hugging Face) on `127.0.0.1:11434`, with [Alpaca](https://flathub.org/apps/com.jeffser.Alpaca) as the chat GUI. Opt-in — about 9 GB:
+[Ollama](https://ollama.com) serves `gemma-4-12B-it-uncensored-heretic` (an uncensored community build of Gemma, from Hugging Face) on `127.0.0.1:11434`, with [Chatbox](https://chatboxai.app) as the chat GUI. Opt-in — about 9 GB:
 
 ```bash
 sudo bash scripts/ollama-setup.sh
@@ -1060,7 +1060,8 @@ sudo bash scripts/ollama-setup.sh
 - **CUDA, not Vulkan**: `nvidia_uvm` is often loaded only when the first desktop program asks for CUDA, after the service has started, and the hardened unit cannot load it itself. A second drop-in loads it and creates `/dev/nvidia-uvm` before the service starts; without it Ollama quietly runs on Vulkan. The hardening's `DeviceAllow` for `nvidia-uvm` carries `m` for that: the drop-in's `nvidia-modprobe` runs inside the service's cgroup, whose device filter would otherwise refuse to create the node, and Ollama would start on Vulkan with the pre-command exiting 1. `ollama-setup.sh test` and `verify-setup.sh` report the backend, and an install without it gets it by running the script again.
 - **Hardened unit**: a drop-in applies the nixpkgs module's sandbox directives (`systemd-analyze security` 9.2 → 2.2 before `PrivateTmp`, `PrivateUsers`, `RestrictAddressFamilies` and `UMask` joined them) — it resets the `$PATH` the installer bakes into the unit and allows only the accelerator devices. An `ollama` user that upstream's `install.sh` created keeps its home, `/usr/share/ollama`, which the drop-in makes writable.
 - **VRAM cap**: the card also drives the desktop, and a full load leaves under 1 GB free, which freezes the lock screen on wake (the same failure as Strata's, above). `OLLAMA_GPU_OVERHEAD` sets a 3 GiB floor, but only a baked `num_gpu` holds the headroom, so the script sweeps GPU layer counts and bakes the largest that still leaves about 3 GB free at `num_ctx 8192`. Every Ollama version fits the layers differently, which is why a re-run re-tunes.
-- **Running it**: `ollama run gemma4-12b-heretic`, or pick the model in Alpaca. In Alpaca, add an Ollama instance at `http://127.0.0.1:11434` and leave **Override Parameters** off — on, it sends its own `num_ctx` and overrides the baked cap that holds the VRAM margin.
+- **Running it**: `ollama run gemma4-12b-heretic`, or Chatbox from the menu: Settings → Model Provider → Ollama (the API Host `http://127.0.0.1:11434` is already filled in), then **Fetch** and pick the model. Chatbox talks to Ollama's OpenAI-compatible API, which takes no context size, so the baked `num_ctx` and `num_gpu` that hold the VRAM margin stay in force. It has no thinking switch for Ollama models: an answer starts with the model's reasoning, where `ollama run` offers `/set nothink`.
+- **Chatbox**: the pinned AppImage (version and SHA-256, checked before it is installed) goes to `~/Applications` of the user who called `sudo`, with a menu entry, and is installed as that user so that it can update itself; a Chatbox that is already there is left alone, and nothing downloaded runs during setup. Chatbox reports crash and usage data by default, so the script creates its configuration with that off (Settings → Advanced → Error Reporting) and never touches an existing one. It still contacts `chatboxai.app` for its update check and built-in content.
 
 ---
 
@@ -1113,7 +1114,7 @@ Local LLM setup — CUDA toolkit from NVIDIA's repo, Strata pinned to a release 
 
 ### `scripts/ollama-setup.sh`
 
-Local LLM via Ollama — the upstream CUDA build with a hardened unit, the uncensored Gemma model tuned to leave the desktop about 3 GB of VRAM, and Alpaca as the GUI. Opt-in; re-run to update Ollama and re-tune. See [Local LLM (Ollama)](#local-llm-ollama).
+Local LLM via Ollama — the upstream CUDA build with a hardened unit, the uncensored Gemma model tuned to leave the desktop about 3 GB of VRAM, and Chatbox as the GUI. Opt-in; re-run to update Ollama and re-tune. See [Local LLM (Ollama)](#local-llm-ollama).
 
 ### `scripts/windows-vm-setup.sh`
 
@@ -1218,7 +1219,7 @@ Run in a terminal, the scripts that change the system leave their ✓ and ! line
 - **User configs**: `fedora-setup.sh` keeps replaced config files, including files within theme directories, the Conky unit, optional audio rules and helper scripts, as `<file>.~N~` next to each file. It preserves unrelated files inside copied theme directories. KDE settings written through `kwriteconfig6` need their own reversal.
 - **GRUB default**: `/etc/default/grub.orig` is the file before the setup edited it; copy it back and run `sudo grub2-mkconfig -o /boot/grub2/grub.cfg`.
 - **Terminal extras**: `fedora-setup.sh` installs lazygit to `/usr/local/bin`, ble.sh to `~/.local/share/blesh`, the JetBrains Mono Nerd Font to `~/.local/share/fonts/JetBrainsMono`, and the helper scripts to `~/scripts`; remove those, then delete the two blocks between the `# >>> fedora-kde-setup` and `# <<< fedora-kde-setup` markers from `~/.bashrc`, or restore `~/.bashrc.orig`.
-- **Ollama** (`scripts/ollama-setup.sh`): `sudo systemctl disable --now ollama`, then remove `/etc/systemd/system/ollama.service` and its `.d` drop-ins, `/usr/local/bin/ollama`, `/usr/local/lib/ollama`, `/var/lib/ollama`, the `ollama` user and group, and the GUI with `flatpak uninstall com.jeffser.Alpaca`.
+- **Ollama** (`scripts/ollama-setup.sh`): `sudo systemctl disable --now ollama`, then remove `/etc/systemd/system/ollama.service` and its `.d` drop-ins, `/usr/local/bin/ollama`, `/usr/local/lib/ollama`, `/var/lib/ollama`, the `ollama` user and group, and the GUI: `~/Applications/Chatbox-x86_64.AppImage`, `~/.local/share/applications/xyz.chatboxapp.app.desktop` and `~/.config/xyz.chatboxapp.app` (its settings and chats). An Alpaca from an earlier version of the script goes with `flatpak uninstall com.jeffser.Alpaca`.
 - **Strata** (`scripts/strata-setup.sh`): remove the checkout (`~/Prosjekter/Strata`), the model files (`/mnt/data/Strata-data` or your `STRATA_DATA`), the CUDA repo `/etc/yum.repos.d/cuda-fedora44.repo`, and `sudo dnf remove cuda-toolkit-13-4`.
 - **Emulation** (`scripts/emulation-setup.sh`): `flatpak uninstall` the Flatpak emulators and `flatpak remote-delete dolphin`; remove `ES-DE_x64.AppImage`, `DuckStation-x64.AppImage` plus its license/source sidecars, `rpcs3_linux64.AppImage`, `Shadps4-sdl.AppImage` and `xenia_edge_linux.AppImage` from `~/Applications`, and `es-de.desktop` and `rpcs3.desktop` from `~/.local/share/applications` (`sudo dnf remove emulationstation-de` for an ES-DE from Terra). Restore the numbered backups of `~/ES-DE/custom_systems/es_systems.xml` and `es_find_rules.xml` if present. ROMs, BIOS files and saves are left alone: RPCS3's data stays in `~/.config/rpcs3` and DuckStation's in `~/.local/share/duckstation`.
 - **Windows VM** (`scripts/windows-vm-setup.sh`): `sudo virsh undefine win11 --nvram --tpm --storage vda` removes the VM with its disk, NVRAM and TPM state; delete the ISOs from `/var/lib/libvirt/images` yourself. With `VM_LIBVIRT_GROUP=yes`, leave the group with `sudo gpasswd -d $USER libvirt`. The libvirt packages and the `/var/lib/libvirt/images` subvolume stay, since other VMs may use them.

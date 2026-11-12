@@ -1,5 +1,5 @@
 #!/bin/bash
-# Local LLM via pinned Ollama and Gemma builds, with Alpaca as the GUI (~9 GB).
+# Local LLM via pinned Ollama and Gemma builds, with Chatbox as the GUI (~9 GB).
 # Installs a hardened system service and tunes the model to reserve desktop VRAM.
 #
 # Usage:
@@ -32,6 +32,11 @@ OLLAMA_SHA256=628c018404a4206493efd38e46251c154ede5141b8b8dc85c659b3b027c47379
 SRC=hf.co/llmfan46/gemma-4-12B-it-uncensored-heretic-GGUF:Q4_K_M
 # The model digest guards against changes to the mutable Hugging Face tag.
 MODEL_SHA256=0930ee39b491bfef38c2d8d843576672648b2b0460ff8bd2870a35d4f50e6735
+# Chatbox lists the AppImage's SHA-512 in https://download.chatboxai.app/releases/latest-linux.yml;
+# this is the SHA-256 of the file that matched it. Update both values together.
+CHATBOX_VERSION=1.24.4
+CHATBOX_SHA256=34641898feadf7edc517312412b98dd5ee7276a7d0408be2e64bb5ff00d3e43d
+CHATBOX_APP=Applications/Chatbox-x86_64.AppImage
 NAME=gemma4-12b-heretic
 CTX=8192
 TARGET=3000          # bake the largest num_gpu that still leaves this many MiB free
@@ -41,6 +46,14 @@ API=http://127.0.0.1:11434
 export OLLAMA_HOST=127.0.0.1:11434
 OLLAMA=/usr/local/bin/ollama
 DROPDIR=/etc/systemd/system/ollama.service.d
+
+# the home of the desktop user: whoever called sudo, or the one running the read-only test
+desktop_home() {
+    local user=${SUDO_USER:-}
+    [ -n "$user" ] || [ "$(id -u)" -eq 0 ] || user=${USER:-}
+    [ -n "$user" ] && [ "$user" != root ] || return 1
+    getent passwd "$user" | cut -d: -f6
+}
 
 free_mib() {
     local free
@@ -59,7 +72,7 @@ load_free() {  # num_gpu model
 }
 
 verify() {
-    local failed=0 free split baked backend
+    local failed=0 free split baked backend home
     echo "  ollama: $("$OLLAMA" --version 2>&1 | awk '{print $NF}')"
     "$OLLAMA" list 2>/dev/null | grep -q "$NAME" || { warn "$NAME is not installed (run with sudo first)"; return 1; }
     if systemctl show ollama -p Environment 2>/dev/null | grep -q "OLLAMA_GPU_OVERHEAD=$OVERHEAD"; then
@@ -85,11 +98,14 @@ verify() {
     echo "  processor split (CPU/GPU): ${split:-n/a}"
     if [ "${free:-0}" -ge "$PASS" ]; then ok "VRAM free with model loaded: ${free} MiB"
     else warn "VRAM free with model loaded: ${free:-unknown} MiB (want >= $PASS)"; failed=1; fi
-    if flatpak info --system com.jeffser.Alpaca >/dev/null 2>&1; then
-        ok "Alpaca: $(flatpak info --system com.jeffser.Alpaca | awk '/Version:/{print $2}')"
-    else
-        warn "Alpaca not installed"
-        failed=1
+    # a run as plain root has no desktop user, so there is nothing to look for
+    if home=$(desktop_home) && [ -n "$home" ]; then
+        if [ -x "$home/$CHATBOX_APP" ]; then
+            ok "Chatbox: $home/$CHATBOX_APP"
+        else
+            warn "Chatbox not installed (run with sudo from your own account)"
+            failed=1
+        fi
     fi
     return "$failed"
 }
@@ -266,14 +282,48 @@ printf 'FROM %s\nPARAMETER num_gpu %s\nPARAMETER num_ctx %s\n' "$tuning" "$best"
 "$OLLAMA" rm "$SRC" >/dev/null 2>&1 || true
 ok "$NAME tuned"
 
-section "Alpaca (chat GUI)"
-flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-flatpak install -y --system flathub com.jeffser.Alpaca
-# its bundled Ollama plugin is not wanted: the hardened system service answers on 127.0.0.1:11434
-flatpak uninstall -y --system com.jeffser.Alpaca.Plugins.Ollama 2>/dev/null || true
-# WebKit's DMA-BUF renderer aborts Alpaca's in-app browser on this NVIDIA/Wayland box
-flatpak override --system --env=WEBKIT_DISABLE_DMABUF_RENDERER=1 com.jeffser.Alpaca
-ok "Alpaca installed — add an Ollama instance at http://127.0.0.1:11434, Override Parameters off"
+section "Chatbox (chat GUI)"
+# Run as the user who called sudo, not as root: the AppImage replaces itself when it updates, and none of this
+# needs privileges. A copy that is already there stays: a newer build's settings may not load in the pinned one.
+chatbox_setup=$(cat <<'CHATBOX'
+set -euo pipefail
+app="$HOME/$3"
+if [ ! -e "$app" ]; then
+    mkdir -p "${app%/*}"
+    staging=$(mktemp -d "${app%/*}/.chatbox.XXXXXX")
+    trap 'rm -rf "$staging"' EXIT
+    curl -fL --connect-timeout 20 --speed-limit 1024 --speed-time 60 --retry 3 -o "$staging/Chatbox.AppImage" \
+        "https://download.chatboxai.app/releases/Chatbox-$1-x86_64.AppImage"
+    printf '%s  %s\n' "$2" "$staging/Chatbox.AppImage" | sha256sum -c --quiet -
+    chmod 755 "$staging/Chatbox.AppImage"
+    mv -fT "$staging/Chatbox.AppImage" "$app"
+fi
+entry="$HOME/.local/share/applications/xyz.chatboxapp.app.desktop"
+if [ ! -e "$entry" ]; then
+    mkdir -p "${entry%/*}"
+    printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=Chatbox' 'GenericName=AI chat client' \
+        'Comment=Chat with the local Ollama models' "Exec=\"$app\" %U" 'Icon=dialog-messages' 'Terminal=false' \
+        'Categories=Utility;' 'StartupWMClass=Chatbox' >"$entry"
+fi
+# Chatbox reports usage and crashes unless its configuration says otherwise; an existing one is the user's own
+config="$HOME/.config/xyz.chatboxapp.app/config.json"
+if [ ! -e "$config" ]; then
+    mkdir -p "${config%/*}"
+    printf '{\n\t"settings": {\n\t\t"allowReportingAndTracking": false\n\t}\n}\n' >"$config"
+fi
+CHATBOX
+)
+if home=$(desktop_home) && [ -d "$home" ]; then
+    runuser -u "$SUDO_USER" -- env HOME="$home" \
+        bash -c "$chatbox_setup" chatbox "$CHATBOX_VERSION" "$CHATBOX_SHA256" "$CHATBOX_APP"
+    ok "Chatbox: $home/$CHATBOX_APP, in the menu — Settings → Model Provider → Ollama, then Fetch"
+else
+    warn "Chatbox not installed: run this script with sudo from your own account"
+fi
+if command -v flatpak >/dev/null 2>&1 && flatpak info --system com.jeffser.Alpaca >/dev/null 2>&1; then
+    warn "Alpaca from an earlier version of this script is still installed and no longer used here:"
+    warn "flatpak uninstall com.jeffser.Alpaca removes it (--delete-data also drops its chats)"
+fi
 
 section "Verify"
 verify
