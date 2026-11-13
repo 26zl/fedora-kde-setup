@@ -1,6 +1,7 @@
 #!/bin/bash
 # Ollama setup: a download with the wrong hash is never installed, the drop-in carries the full
-# sandbox, tuning only loads a scratch copy, and an abort leaves the tuned model untouched.
+# sandbox, tuning only loads a scratch copy, an abort leaves the tuned model untouched, and Chatbox
+# is installed as the user who called sudo without replacing what that user already has.
 set -euo pipefail
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 tmp=$(mktemp -d)
@@ -9,6 +10,7 @@ stub="$tmp/bin"
 fix="$tmp/root"
 mkdir -p "$stub" "$tmp/copy/scripts" "$tmp/state"
 export SAFE_LOG="$tmp/commands" FIX="$fix" STATE="$tmp/state" FIXTURE_ARCHIVE="$tmp/ollama.tar.zst"
+export FIXTURE_CHATBOX="$tmp/chatbox.appimage"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 script="$repo/scripts/ollama-setup.sh"
@@ -16,11 +18,15 @@ version=$(sed -n 's/^OLLAMA_VERSION=//p' "$script")
 name=$(sed -n 's/^NAME=//p' "$script")
 src=$(sed -n 's/^SRC=//p' "$script")
 STUB_MODEL_SHA=$(sed -n 's/^MODEL_SHA256=//p' "$script")
-[ -n "$version" ] && [ -n "$name" ] && [ -n "$src" ] && [ -n "$STUB_MODEL_SHA" ] || fail "cannot read the pins from $script"
+chatbox_version=$(sed -n 's/^CHATBOX_VERSION=//p' "$script")
+[ -n "$version" ] && [ -n "$name" ] && [ -n "$src" ] && [ -n "$STUB_MODEL_SHA" ] && [ -n "$chatbox_version" ] ||
+    fail "cannot read the pins from $script"
+[[ $(sed -n 's/^CHATBOX_SHA256=//p' "$script") =~ ^[0-9a-f]{64}$ ]] || fail "Chatbox has no SHA-256 pin"
 export STUB_MODEL_SHA STUB_SRC=$src
 tuning=$name-tuning
 dropdir="$fix/etc/systemd/system/ollama.service.d"
 printf 'fixture ollama archive\n' >"$FIXTURE_ARCHIVE"
+printf '#!/bin/sh\necho executed >>"%s"\n' "$tmp/chatbox-executed" >"$FIXTURE_CHATBOX"
 
 # The real script writes as root to /usr/local, /etc/systemd/system and /var/tmp; the copies write
 # into the fixture tree instead and find the ollama stub on PATH.
@@ -40,7 +46,8 @@ pinned="$tmp/copy/scripts/pinned.sh"
 trusting="$tmp/copy/scripts/trusting.sh"
 patch_paths "$pinned"
 patch_paths "$trusting"
-sed -i "s/^OLLAMA_SHA256=.*/OLLAMA_SHA256=$(sha256sum "$FIXTURE_ARCHIVE" | cut -d' ' -f1)/" "$trusting"
+sed -i -e "s/^OLLAMA_SHA256=.*/OLLAMA_SHA256=$(sha256sum "$FIXTURE_ARCHIVE" | cut -d' ' -f1)/" \
+    -e "s/^CHATBOX_SHA256=.*/CHATBOX_SHA256=$(sha256sum "$FIXTURE_CHATBOX" | cut -d' ' -f1)/" "$trusting"
 
 # the model list lives in $STATE/models, a model's baked num_gpu in $STATE/baked.<name>
 cat >"$stub/ollama" <<'STUB'
@@ -115,6 +122,9 @@ case $url in
     https://github.com/*)
         printf 'curl download %s\n' "$url" >>"$SAFE_LOG"
         cp "$FIXTURE_ARCHIVE" "$out" ;;
+    https://download.chatboxai.app/*)
+        printf 'curl download %s\n' "$url" >>"$SAFE_LOG"
+        cp "$FIXTURE_CHATBOX" "$out" ;;
     *) printf 'curl %s\n' "$url" >>"$SAFE_LOG"; exit 22 ;;
 esac
 STUB
@@ -133,7 +143,13 @@ cat >"$stub/getent" <<'STUB'
 printf 'getent %s\n' "$*" >>"$SAFE_LOG"
 case $1 in
     group) [ -f "$STATE/group" ] ;;
-    passwd) [ -f "$STATE/home" ] || exit 2; echo "ollama:x:957:957::$(cat "$STATE/home"):/sbin/nologin" ;;
+    passwd)
+        # GUI_USER is the account that called sudo; every other lookup is the ollama service user
+        if [ -n "${GUI_USER-}" ] && [ "$2" = "$GUI_USER" ]; then
+            echo "$2:x:1000:1000::$FIX/home/$2:/bin/bash"
+            exit 0
+        fi
+        [ -f "$STATE/home" ] || exit 2; echo "ollama:x:957:957::$(cat "$STATE/home"):/sbin/nologin" ;;
     *) exit 2 ;;
 esac
 STUB
@@ -180,8 +196,14 @@ STUB
 cat >"$stub/flatpak" <<'STUB'
 #!/bin/bash
 printf 'flatpak %s\n' "$*" >>"$SAFE_LOG"
-[ "$1" != info ] || echo 'Version: 1.0'
-exit 0
+[ "$1" != info ] || [ "${ALPACA:-absent}" = installed ]
+STUB
+cat >"$stub/runuser" <<'STUB'
+#!/bin/bash
+[ "$1" = -u ] && [ "$3" = -- ] || { echo "runuser stub: unexpected arguments: $*" >&2; exit 1; }
+printf 'runuser %s\n' "$2" >>"$SAFE_LOG"
+shift 3
+exec "$@"
 STUB
 cat >"$stub/journalctl" <<'STUB'
 #!/bin/bash
@@ -219,7 +241,7 @@ existing_user() {  # home
 run() {  # expected-exit|fail copy; a new session, so a stubbed Ctrl+C reaches only this run
     local want=$1 rc
     : >"$SAFE_LOG"
-    output=$(PATH="$stub:$PATH" NO_COLOR=1 setsid -w bash "$2" </dev/null 2>&1) && rc=0 || rc=$?
+    output=$(PATH="$stub:$PATH" NO_COLOR=1 SUDO_USER="${GUI_USER-}" setsid -w bash "$2" </dev/null 2>&1) && rc=0 || rc=$?
     if [ "$want" = fail ]; then
         [ "$rc" -ne 0 ] || fail "exit 0, want a failure ($output)"
     else
@@ -308,4 +330,77 @@ for abort in 0 2; do
     grep -qx "ollama rm $tuning" "$SAFE_LOG" || fail "$tuning was left behind (abort at load $abort)"
     ! grep -qxF "$tuning" "$STATE/models" || fail "$tuning is still listed (abort at load $abort)"
 done
+
+# Chatbox: installed as the user who called sudo, from a checked download, without running it.
+export GUI_USER=tester
+gui_home="$fix/home/$GUI_USER"
+chatbox="$gui_home/Applications/Chatbox-x86_64.AppImage"
+entry="$gui_home/.local/share/applications/xyz.chatboxapp.app.desktop"
+config="$gui_home/.config/xyz.chatboxapp.app/config.json"
+installed_run() {  # expected-exit copy: Ollama is current, so the run goes straight to tuning and the GUI
+    existing_user /var/lib/ollama
+    STUB_VERSION=${version#v} FREE_TABLE="48:3500" run "$1" "$2"
+}
+fresh
+mkdir -p "$gui_home"
+installed_run 0 "$trusting"
+grep -qx "curl download https://download.chatboxai.app/releases/Chatbox-$chatbox_version-x86_64.AppImage" "$SAFE_LOG" ||
+    fail "the pinned Chatbox build was not downloaded"
+grep -qx "runuser $GUI_USER" "$SAFE_LOG" || fail "Chatbox was not installed as the user who called sudo"
+cmp -s "$FIXTURE_CHATBOX" "$chatbox" && [ -x "$chatbox" ] || fail "Chatbox was not installed unchanged and executable"
+grep -qxF "Exec=\"$chatbox\" %U" "$entry" || fail "the menu entry does not start the AppImage"
+grep -q '"allowReportingAndTracking": false' "$config" || fail "a new Chatbox configuration leaves reporting on"
+python3 -I -c 'import json, sys; json.load(open(sys.argv[1]))' "$config" || fail "the Chatbox configuration is not valid JSON"
+[ -z "$(find "$gui_home/Applications" -mindepth 1 -name '.chatbox.*')" ] || fail "the Chatbox download left its staging folder"
+grep -qxF "  ✓ Chatbox: $chatbox" <<<"$output" || fail "the verification did not find Chatbox"
+[[ $output != *"Alpaca from an earlier version"* ]] || fail "an Alpaca that is not installed was reported"
+
+# the read-only test, run by that user without sudo, finds Chatbox or fails without it
+verify_only() {  # expected-exit
+    local rc
+    : >"$SAFE_LOG"
+    output=$(PATH="$stub:$PATH" NO_COLOR=1 STUB_UID=1000 USER="$GUI_USER" SUDO_USER="" FREE_TABLE="48:3500" \
+        setsid -w bash "$trusting" test </dev/null 2>&1) && rc=0 || rc=$?
+    [ "$rc" -eq "$1" ] || fail "the read-only test exited $rc, want $1 ($output)"
+}
+verify_only 0
+grep -qxF "  ✓ Chatbox: $chatbox" <<<"$output" || fail "the read-only test did not find Chatbox"
+! grep -qE '^(runuser|curl download)' "$SAFE_LOG" || fail "the read-only test installed something"
+mv "$chatbox" "$chatbox.away"
+verify_only 1
+[[ $output == *"Chatbox not installed"* ]] || fail "the read-only test passed without Chatbox"
+mv "$chatbox.away" "$chatbox"
+
+# a later run keeps the AppImage, the menu entry and the configuration it finds
+printf 'a newer build\n' >"$chatbox"
+printf 'an edited entry\n' >"$entry"
+printf '{"settings":{"allowReportingAndTracking":true}}\n' >"$config"
+installed_run 0 "$trusting"
+! grep -q '^curl download https://download.chatboxai.app/' "$SAFE_LOG" || fail "an installed Chatbox was downloaded again"
+[ "$(cat "$chatbox")" = 'a newer build' ] || fail "an installed Chatbox was replaced by the pinned build"
+[ "$(cat "$entry")" = 'an edited entry' ] || fail "an existing menu entry was rewritten"
+grep -q '"allowReportingAndTracking":true' "$config" || fail "an existing Chatbox configuration was changed"
+
+# a download that misses the pin is not installed, and nothing is left for a later run to trust
+fresh
+mkdir -p "$gui_home"
+installed_run fail "$pinned"
+grep -q '^curl download https://download.chatboxai.app/' "$SAFE_LOG" || fail "the run with a wrong Chatbox hash never downloaded it"
+[ ! -e "$chatbox" ] && [ ! -e "$entry" ] && [ ! -e "$config" ] || fail "a Chatbox download with the wrong hash was installed"
+[ -z "$(find "$gui_home" -mindepth 1 -name '.chatbox.*')" ] || fail "a rejected Chatbox download left its staging folder"
+
+# an Alpaca left by an earlier version of the script is named, not removed
+fresh
+mkdir -p "$gui_home"
+ALPACA=installed installed_run 0 "$trusting"
+[[ $output == *"Alpaca from an earlier version of this script is still installed"* ]] || fail "an Alpaca left by an earlier version went unmentioned"
+! grep -qE '^flatpak (uninstall|install|override)' "$SAFE_LOG" || fail "the setup installed, changed or removed a Flatpak"
+
+# as plain root there is no desktop user: nothing is installed, and the run still passes
+unset GUI_USER
+fresh
+installed_run 0 "$pinned"
+[[ $output == *"Chatbox not installed: run this script with sudo from your own account"* ]] || fail "no notice about the missing desktop user"
+! grep -qE '^(runuser|curl download https://download.chatboxai.app/)' "$SAFE_LOG" || fail "Chatbox was installed without a desktop user"
+[ ! -e "$tmp/chatbox-executed" ] || fail "the downloaded Chatbox AppImage was executed during setup"
 echo "All Ollama setup tests passed."
