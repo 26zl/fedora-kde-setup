@@ -19,8 +19,10 @@ name=$(sed -n 's/^NAME=//p' "$script")
 src=$(sed -n 's/^SRC=//p' "$script")
 STUB_MODEL_SHA=$(sed -n 's/^MODEL_SHA256=//p' "$script")
 chatbox_version=$(sed -n 's/^CHATBOX_VERSION=//p' "$script")
-[ -n "$version" ] && [ -n "$name" ] && [ -n "$src" ] && [ -n "$STUB_MODEL_SHA" ] && [ -n "$chatbox_version" ] ||
-    fail "cannot read the pins from $script"
+ctx=$(sed -n 's/^CTX=\([0-9]*\).*/\1/p' "$script")
+[ -n "$version" ] && [ -n "$name" ] && [ -n "$src" ] && [ -n "$STUB_MODEL_SHA" ] && [ -n "$chatbox_version" ] &&
+    [ -n "$ctx" ] || fail "cannot read the pins from $script"
+grep -qF "\`num_ctx $ctx\`" "$repo/README.md" || fail "the README names another context than the $ctx the script bakes"
 [[ $(sed -n 's/^CHATBOX_SHA256=//p' "$script") =~ ^[0-9a-f]{64}$ ]] || fail "Chatbox has no SHA-256 pin"
 export STUB_MODEL_SHA STUB_SRC=$src
 tuning=$name-tuning
@@ -73,7 +75,8 @@ case $1 in
     create)
         from=$(sed -n 's/^FROM //p' "$4")
         gpu=$(sed -n 's/^PARAMETER num_gpu //p' "$4")
-        printf 'ollama-created %s from=%s num_gpu=%s\n' "$2" "$from" "$gpu" >>"$SAFE_LOG"
+        printf 'ollama-created %s from=%s num_gpu=%s num_ctx=%s\n' "$2" "$from" "$gpu" \
+            "$(sed -n 's/^PARAMETER num_ctx //p' "$4")" >>"$SAFE_LOG"
         grep -qxF "$2" "$models" || echo "$2" >>"$models"
         echo "$gpu" >"$STATE/baked.$(key "$2")" ;;
     rm)
@@ -107,7 +110,8 @@ model=$(sed -n 's/.*"model":"\([^"]*\)".*/\1/p' <<<"$data")
 case $url in
     */api/generate)
         gpu=$(sed -n 's/.*"num_gpu":\([0-9]*\).*/\1/p' <<<"$data")
-        printf 'load %s num_gpu=%s\n' "$model" "$gpu" >>"$SAFE_LOG"
+        printf 'load %s num_gpu=%s num_ctx=%s\n' "$model" "$gpu" \
+            "$(sed -n 's/.*"num_ctx":\([0-9]*\).*/\1/p' <<<"$data")" >>"$SAFE_LOG"
         count=$(($(cat "$STATE/loads" 2>/dev/null || echo 0) + 1))
         echo "$count" >"$STATE/loads"
         if [ "${ABORT_AT_LOAD:-0}" -eq "$count" ]; then
@@ -166,7 +170,8 @@ STUB
 cat >"$stub/systemctl" <<'STUB'
 #!/bin/bash
 printf 'systemctl %s\n' "$*" >>"$SAFE_LOG"
-[ "$1" != show ] || sed -n 's/^Environment="\(.*\)"$/Environment=\1/p' "$FIX/etc/systemd/system/ollama.service.d/vram-reserve.conf"
+[ "$1" != show ] || sed -n 's/^Environment="\(.*\)"$/Environment=\1/p' \
+    "$FIX"/etc/systemd/system/ollama.service.d/{vram-reserve,single-model}.conf 2>/dev/null
 exit 0
 STUB
 cat >"$stub/zstd" <<'STUB'
@@ -281,13 +286,17 @@ for line in PrivateTmp=true PrivateUsers=true 'RestrictAddressFamilies=AF_INET A
 done
 grep -qx 'ReadWritePaths=/var/lib/ollama' "$dropdir/hardening.conf" || fail "the hardening drop-in lost its data directory"
 [ "$(grep -c '^ReadWritePaths=' "$dropdir/hardening.conf")" -eq 1 ] || fail "a user homed in /var/lib/ollama got extra ReadWritePaths"
+grep -qx 'Environment="OLLAMA_MAX_LOADED_MODELS=1"' "$dropdir/single-model.conf" || fail "no drop-in keeps Ollama to one loaded model"
 grep -qx "ollama cp $src $tuning" "$SAFE_LOG" || fail "the source model was not copied to $tuning"
 created=$(line_of '^ollama-created ')
 [ -n "$created" ] || fail "no model was baked"
-grep -qx "ollama-created $name from=$tuning num_gpu=42" "$SAFE_LOG" || fail "$name was not baked from $tuning at the first fit"
+grep -qx "ollama-created $name from=$tuning num_gpu=42 num_ctx=$ctx" "$SAFE_LOG" ||
+    fail "$name was not baked from $tuning at the first fit with a context of $ctx"
 head -n "$created" "$SAFE_LOG" | grep -q '^load ' || fail "nothing was loaded during tuning"
 bad=$(head -n "$created" "$SAFE_LOG" | grep '^load ' | grep -v "^load $tuning " || true)
 [ -z "$bad" ] || fail "tuning loaded something other than $tuning: $bad"
+bad=$(head -n "$created" "$SAFE_LOG" | grep '^load ' | grep -v " num_ctx=$ctx\$" || true)
+[ -z "$bad" ] || fail "tuning measured the VRAM at another context than the $ctx it bakes: $bad"
 writes=$(name_writes)
 [ "$(grep -c . <<<"$writes")" -eq 1 ] && [[ $writes == "ollama create $name -f "*/Modelfile ]] ||
     fail "$name was written by something other than the final create: $writes"
@@ -370,6 +379,11 @@ mv "$chatbox" "$chatbox.away"
 verify_only 1
 [[ $output == *"Chatbox not installed"* ]] || fail "the read-only test passed without Chatbox"
 mv "$chatbox.away" "$chatbox"
+# an install from before the one-model limit fails the read-only test until the script runs again
+mv "$dropdir/single-model.conf" "$dropdir/single-model.conf.away"
+verify_only 1
+[[ $output == *"one model at a time: not set"* ]] || fail "the read-only test passed without the one-model limit"
+mv "$dropdir/single-model.conf.away" "$dropdir/single-model.conf"
 
 # a later run keeps the AppImage, the menu entry and the configuration it finds
 printf 'a newer build\n' >"$chatbox"

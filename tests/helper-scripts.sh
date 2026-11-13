@@ -16,7 +16,12 @@ cat >"$stub/systemctl" <<'STUB'
 printf 'systemctl %s\n' "$*" >>"$SAFE_LOG"
 case "$*" in
     *restart*) exit 1 ;;
-    *show*) [ "${RESERVE:-yes}" = yes ] && echo 'Environment=OLLAMA_GPU_OVERHEAD=3221225472'; exit 0 ;;
+    *show*)
+        env=""
+        [ "${LIMIT:-yes}" = no ] || env+=" OLLAMA_MAX_LOADED_MODELS=1"
+        [ "${RESERVE:-yes}" = no ] || env+=" OLLAMA_GPU_OVERHEAD=3221225472"
+        echo "Environment=${env# }"
+        exit 0 ;;
     *) exit 1 ;;
 esac
 STUB
@@ -158,6 +163,9 @@ if PATH="$stub:$PATH" VRAM=1000 bash "$tmp/verify.sh" >"$tmp/verify.out"; then
 fi
 if PATH="$stub:$PATH" RESERVE=no bash "$tmp/verify.sh" >"$tmp/verify.out"; then
     fail "Ollama accepted a missing service VRAM reserve"
+fi
+if PATH="$stub:$PATH" LIMIT=no bash "$tmp/verify.sh" >"$tmp/verify.out"; then
+    fail "Ollama accepted a service without its one-model limit"
 fi
 if PATH="$stub:$PATH" CAP=no bash "$tmp/verify.sh" >"$tmp/verify.out"; then
     fail "Ollama accepted a model without its GPU layer limit"
