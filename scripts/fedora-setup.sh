@@ -83,7 +83,7 @@ echo "   - keep only your languages' glibc langpacks and RPM translations, and r
 echo "   - set up snapper snapshots on a btrfs root, then deploy the system/ files through apply-system.sh"
 echo "     (kernel arguments, sysctl, modprobe, udev, systemd units and drop-ins)"
 echo "   - trim default firewall services and ports (ssh included), remove kde-connect, disable cups, abrt and gssproxy, enable auditd"
-echo "   - set the RTC to UTC$(hw_has_windows && echo ' and make GRUB remember the last-booted OS')"
+echo "   - set the RTC to UTC$(hw_has_windows && echo ' and make GRUB remember the last-booted OS and wait at least 10 s')"
 echo "   - write the KDE settings and the kitty, fish and starship configs (existing files kept as numbered backups) and edit ~/.bashrc"
 if [ "$RICE" = yes ]; then
     echo "   - add the Darth Vader look: wallpaper on the lock and login screens, theme files and Conky (RICE=no in setup.conf skips it)"
@@ -366,10 +366,20 @@ if hw_has_windows; then
         echo 'GRUB_SAVEDEFAULT=true' | sudo tee -a /etc/default/grub >/dev/null
         grub_changed=1
     fi
-    if [[ $grub_changed -eq 1 ]]; then
-        sudo grub2-mkconfig -o /boot/grub2/grub.cfg
+    # Fedora's 5 s countdown is too short to pick the other OS; a longer one, or -1 (no countdown), stays
+    grub_timeout=$(sed -n 's/^GRUB_TIMEOUT=//p' /etc/default/grub)
+    if [ -z "$grub_timeout" ]; then
+        echo 'GRUB_TIMEOUT=10' | sudo tee -a /etc/default/grub >/dev/null
+        grub_changed=1
+    elif [[ $grub_timeout =~ ^[0-9]+$ ]] && [ "$grub_timeout" -lt 10 ]; then
+        sudo sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=10/' /etc/default/grub
+        grub_changed=1
     fi
-    ok "RTC set to UTC (Windows must use UTC too); GRUB remembers last-booted OS"
+    if [[ $grub_changed -eq 1 ]]; then
+        # only the menu changes; without the flag grub2-mkconfig also rewrites every BLS entry's kernel options
+        sudo grub2-mkconfig --no-grubenv-update -o /boot/grub2/grub.cfg
+    fi
+    ok "RTC set to UTC (Windows must use UTC too); GRUB waits at least 10 s and remembers the last-booted OS"
 else
     ok "RTC set to UTC; no Windows boot entry, GRUB default left alone"
 fi
