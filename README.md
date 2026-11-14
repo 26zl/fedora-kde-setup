@@ -45,7 +45,7 @@ The scripts detect the hardware and adapt to it, so the same repo sets up a gami
 | Intel GPU | `intel-media-driver` for H.264/H.265 hardware video |
 | Desktop | tuned `latency-performance`, scx Gaming mode, `workqueue.power_efficient=false` |
 | Laptop | tuned keeps its battery-aware `balanced` profile, scx runs in Auto mode. With hybrid graphics the desktop stays on the integrated GPU |
-| Windows in the UEFI boot list | GRUB remembers the last-booted OS |
+| Windows in the UEFI boot list | GRUB remembers the last-booted OS and shows its menu for at least 10 seconds |
 | btrfs root | Snapper snapshots |
 | AMD or Intel CPU | CPU temperature from `k10temp` or `coretemp` in Conky and `sysinfo` |
 
@@ -473,7 +473,7 @@ Only relevant when Windows shares the machine. `fedora-setup.sh` checks the UEFI
   powercfg /h off
   ```
   This also disables Fast Startup, which must be off when sharing an NTFS disk with Linux.
-- **Linux** — `fedora-setup.sh` sets `GRUB_SAVEDEFAULT=true` (with `GRUB_DEFAULT=saved`) and regenerates `grub.cfg`, so GRUB remembers the last-booted OS. If GRUB does appear it re-selects Windows and chainloads the Windows Boot Manager, which resumes the hibernated session.
+- **Linux** — `fedora-setup.sh` sets `GRUB_SAVEDEFAULT=true` (with `GRUB_DEFAULT=saved`), gives the menu at least 10 seconds (`GRUB_TIMEOUT`; Fedora's is 5, too short to pick the other OS) and regenerates `grub.cfg`, so GRUB remembers the last-booted OS. If GRUB does appear it re-selects Windows and chainloads the Windows Boot Manager, which resumes the hibernated session.
 
 ### 13. Backup — Snapper (BTRFS Snapshots)
 

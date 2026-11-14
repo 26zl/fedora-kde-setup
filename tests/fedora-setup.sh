@@ -1,6 +1,7 @@
 #!/bin/bash
 # fedora-setup.sh end to end with every system change stubbed: the refusals stop before sudo, Terra is
-# added only once, the GRUB defaults are saved before apply-system.sh, and ~/.bashrc gets ble.sh once.
+# added only once, the GRUB defaults are saved before apply-system.sh, ~/.bashrc gets ble.sh once, and
+# with Windows the boot menu waits at least 10 s without grub2-mkconfig rewriting the kernel options.
 set -euo pipefail
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 tmp=$(mktemp -d)
@@ -36,7 +37,7 @@ sed -i -e "s#/etc/fedora-release#$fx/etc/fedora-release#g" -e "s#/etc/default/gr
 cat >"$stub/sudo" <<'STUB'
 #!/bin/bash
 printf 'sudo %s\n' "$*" >>"$SAFE_LOG"
-[ "$1" != tee ] || cat >/dev/null
+[ "$1" != tee ] || sed 's/^/tee< /' >>"$SAFE_LOG"
 STUB
 cat >"$stub/rpm" <<'STUB'
 #!/bin/bash
@@ -121,6 +122,7 @@ grub=$(grep -nxF "sudo cp -n $fx/etc/default/grub $fx/etc/default/grub.orig" "$S
 apply=$(grep -nx 'apply-system --yes' "$SAFE_LOG" | cut -d: -f1)
 { [ -n "$grub" ] && [ -n "$apply" ] && [ "$grub" -lt "$apply" ]; } ||
     fail "the GRUB defaults were not saved before apply-system.sh rewrote GRUB_CMDLINE_LINUX"
+! grep -qE 'GRUB_|grub2-mkconfig' "$SAFE_LOG" || fail "a machine without Windows got its boot menu changed"
 [ "$(blocks "$home")" -eq 1 ] || fail "configs/bashrc was not appended once"
 [ "$(grep -cxF "$attach_line" "$home/.bashrc" || true)" -eq 1 ] || fail "ble-attach was not added once"
 [ "$(tail -n 2 "$home/.bashrc" | head -n 1)" = "$attach_line" ] || fail "ble-attach is not the last line of the block"
@@ -142,4 +144,29 @@ RC
 run 0 "$zoxide_home" --yes
 [ "$(blocks "$zoxide_home")" -eq 1 ] || fail "a .bashrc with zoxide but no ble-attach did not get configs/bashrc"
 [ "$(grep -cxF "$attach_line" "$zoxide_home/.bashrc" || true)" -eq 1 ] || fail "a .bashrc with zoxide did not get ble-attach"
+
+# Windows on the ESP: sudo only logs, so each run sees /etc/default/grub as written here
+mkdir -p "$fx/boot/efi/EFI/Microsoft/Boot"
+: >"$fx/boot/efi/EFI/Microsoft/Boot/bootmgfw.efi"
+grub_run() {  # lines of /etc/default/grub
+    printf '%s\n' "$@" >"$fx/etc/default/grub"
+    run 0 "$tmp/home-windows" --yes
+}
+mkconfig="sudo grub2-mkconfig --no-grubenv-update -o /boot/grub2/grub.cfg"
+grub_run GRUB_TIMEOUT=5
+grep -qxF "sudo sed -i s/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=10/ $fx/etc/default/grub" "$SAFE_LOG" ||
+    fail "Fedora's 5 s countdown was not raised to 10"
+for line in GRUB_DEFAULT=saved GRUB_SAVEDEFAULT=true; do
+    grep -qxF "tee< $line" "$SAFE_LOG" || fail "$line was not added"
+done
+[ "$(grep -cxF "$mkconfig" "$SAFE_LOG")" -eq 1 ] || fail "grub.cfg was not regenerated once with --no-grubenv-update"
+! grep -q 'grub2-mkconfig -o' "$SAFE_LOG" || fail "grub2-mkconfig ran without --no-grubenv-update and rewrote the kernel options"
+[[ $output == *"GRUB waits at least 10 s and remembers the last-booted OS"* ]] || fail "the boot menu step did not report the countdown"
+grub_run GRUB_DEFAULT=saved GRUB_SAVEDEFAULT=true
+grep -qxF 'tee< GRUB_TIMEOUT=10' "$SAFE_LOG" && [ "$(grep -cxF "$mkconfig" "$SAFE_LOG")" -eq 1 ] ||
+    fail "a missing GRUB_TIMEOUT was not added"
+for keep in 10 15 -1; do
+    grub_run "GRUB_TIMEOUT=$keep" GRUB_DEFAULT=saved GRUB_SAVEDEFAULT=true
+    ! grep -qE 'GRUB_|grub2-mkconfig' "$SAFE_LOG" || fail "GRUB_TIMEOUT=$keep was changed or grub.cfg regenerated for nothing"
+done
 echo "All Fedora setup tests passed."
